@@ -13,12 +13,12 @@ class Frame:
         y: int,
         width: int,
         height: int,
-        background: Tuple[int, int, int] = (60, 60, 60),
-        bg: Tuple[int, int, int] = (60, 60, 60),
-        border_color: Optional[Tuple[int, int, int]] = (200, 200, 200),
-        border_colour: Optional[Tuple[int, int, int]] = (200, 200, 200),
-        border_width: int = 2,
-        border: int = 2,
+        background: Optional[Tuple[int, int, int]] = None,
+        bg: Optional[Tuple[int, int, int]] = None,
+        border_color: Optional[Tuple[int, int, int]] = None,
+        border_colour: Optional[Tuple[int, int, int]] = None,
+        border_width: Optional[int] = None,
+        border: Optional[int] = None,
         visible: bool = True,
         pad_x:int = 10,
         pad_y:int = 10
@@ -30,20 +30,28 @@ class Frame:
         self.pad_x = pad_x
         self.pad_y = pad_y
 
+        # Either spelling can be used (e.g. bg= or background=).
+        # If neither is given, use the default value.
         if background is not None:
             self.background = background
         elif bg is not None:
             self.background = bg
+        else:
+            self.background = (60, 60, 60)
 
         if border_color is not None:
             self.border_color = border_color
         elif border_colour is not None:
             self.border_color = border_colour
+        else:
+            self.border_color = (200, 200, 200)
 
         if border_width is not None:
             self.border_width = border_width
         elif border is not None:
             self.border_width = border
+        else:
+            self.border_width = 2
 
         self.children: List[object] = []
         self.visible = visible
@@ -52,12 +60,17 @@ class Frame:
         """Add a visual element (Label, Button, etc.) to this Frame."""
         self.children.append(element)
 
-    def draw(self, surface, offset=(0, 0)):
+    def _child_offset(self, offset):
+        """Where the children's (0, 0) is on screen: frame position + padding."""
         ox, oy = offset
+        return (ox + self.rect.x + self.pad_x, oy + self.rect.y + self.pad_y)
 
-        my_off = ((ox + self.pad_x) + self.rect.x, (oy + self.pad_y) + self.rect.y)
+    def draw(self, surface, offset=(0, 0)):
+        if not self.visible:
+            return
 
-        #my_off = (ox + self.rect.x, oy + self.rect.y)
+        ox, oy = offset
+        my_off = self._child_offset(offset)
 
         # Draw frame background
         if self.background:
@@ -75,13 +88,24 @@ class Frame:
             child.draw(surface, my_off)
 
     def handle_event(self, event, offset=(0,0)):
-        # Calculate this frame's absolute offset
-        ox, oy = offset
-        my_off = (ox + self.rect.x, oy + self.rect.y)
+        if not self.visible:
+            return
+
+        # Use the same offset as draw() so clicks line up with what is drawn
+        my_off = self._child_offset(offset)
 
         # Send event to children
         for child in self.children:
-            child.handle_event(event, my_off)
+            if hasattr(child, "handle_event"):
+                child.handle_event(event, my_off)
+
+    def update(self, tick):
+        """Pass the tick on to children that animate (e.g. TextBox cursor)."""
+        if not self.visible:
+            return
+        for child in self.children:
+            if hasattr(child, "update"):
+                child.update(tick)
 
     def toggle_visibility(self):
         """Show or hide the frame."""
@@ -290,14 +314,18 @@ class Animator:
     # Loading methods
     # -----------------------------
     def _load_from_files(self, file_list):
-        """Load individual frame images."""
-        for filename in file_list:
-            img = pg.image.load(filename).convert_alpha()
+        """Load individual frame images (filenames or ready-made Surfaces)."""
+        for item in file_list:
+            if isinstance(item, pg.Surface):
+                img = item
+            else:
+                img = pg.image.load(item).convert_alpha()
             if self.scale != 1:
                 w, h = img.get_size()
                 img = pg.transform.scale(img, (int(w * self.scale), int(h * self.scale)))
             self.frames.append(img)
 
+        self.sheet_cols = None   # no sprite sheet: frames are numbered 0, 1, 2...
         self.animations["default"] = {"frames": list(range(len(self.frames))),
                                       "invert": (False, False)}
         self.current_animation = "default"
@@ -325,12 +353,21 @@ class Animator:
     # -----------------------------
     def add_animation(self, name, frames, invert=(False, False)):
         """
-        Define an animation sequence by (row, col) positions and optional flipping.
+        Define an animation sequence and optional flipping.
+        frames: a list of (row, col) positions on a sprite sheet,
+                or a list of frame numbers, e.g. [0, 1, 2]
         invert: (flip_x, flip_y)
         """
         indices = []
-        for row, col in frames:
-            index = row * self.sheet_cols + col
+        for f in frames:
+            if isinstance(f, int):
+                index = f
+            else:
+                row, col = f
+                if self.sheet_cols is None:
+                    raise ValueError("(row, col) frames need a sprite sheet; "
+                                     "use frame numbers like [0, 1, 2] instead")
+                index = row * self.sheet_cols + col
             if 0 <= index < len(self.frames):
                 indices.append(index)
         self.animations[name] = {"frames": indices, "invert": invert}
@@ -350,6 +387,10 @@ class Animator:
             self.current_animation = name
             self.current_frame_index = 0
             self.timer = 0
+            # Switching animation always plays it looping
+            # (play_once() turns looping off again straight after)
+            self.playing = True
+            self.loop = True
         else:
             # same animation requested; only reset if caller asked for it
             if reset:
@@ -486,6 +527,13 @@ class TiledMap:
         self.height = self.tmx.height * self.tmx.tileheight
         self.objects = list(self.tmx.objects)
 
+        # Things found in object layers (filled in by _load_object_layers)
+        self.spawn_points = {}
+        self.collision_objects = []
+        self.triggers = []
+        self.paths = []
+        self.custom_objects = []
+
         # Layer groups
         self.background = pg.sprite.Group()
         self.foreground = pg.sprite.Group()
@@ -511,14 +559,15 @@ class TiledMap:
                     # ----------------------------
                     # Animated tile detection
                     # ----------------------------
-                    anim = tile_props.get("animation")
+                    # pytmx stores Tiled animations under "frames"
+                    anim = tile_props.get("frames")
                     if anim:
 
                         frames = []
                         durations = []
 
                         for f in anim:
-                            frame_img = self.tmx.get_tile_image_by_gid(f.tileid)
+                            frame_img = self.tmx.get_tile_image_by_gid(f.gid)
                             frames.append(frame_img)
                             durations.append(f.duration)
 
@@ -579,7 +628,7 @@ class TiledMap:
                 continue
 
             # ------------- Ellipse -------------
-            if shape == "ellipse":
+            if shape == "ellipse" or getattr(obj, "ellipse", False):
                 self.collision_objects.append({
                     "ellipse": (ox, oy, ow, oh),
                     "properties": props
@@ -587,8 +636,10 @@ class TiledMap:
                 continue
 
             # ------------- Polygon / Polyline -------------
-            if shape in ("polygon", "polyline"):
-                points = [(ox + p.x, oy + p.y) for p in obj.points]
+            # pytmx gives these a .points list (not a .shape), and the
+            # points are already in map coordinates
+            if shape in ("polygon", "polyline") or hasattr(obj, "points"):
+                points = [(p.x, p.y) for p in obj.points]
                 self.paths.append({
                     "points": points,
                     "name": name,
@@ -698,9 +749,8 @@ class Button:
 
     def handle_event(self, event, offset=(0,0)):
         if event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-            ox, oy = offset
-            mx, my = event.pos
-            if self.rect.collidepoint(mx + ox, my + oy):
+            # Use the same rectangle that draw() uses
+            if self.get_rect_with_offset(offset).collidepoint(event.pos):
                 if self.action:
                     self.action()
 
@@ -729,9 +779,16 @@ class SpriteObject(pg.sprite.Sprite):
         if self.animator:
             self.image = self.animator.frames[0]
 
+        # No image or animator: use a plain coloured rectangle
+        if self.image is None:
+            self.image = pg.Surface((width or 32, height or 32))
+            self.image.fill((255, 0, 255))
+
         # Use given size or image size
+        self.size = None
         if width and height:
-            self.image = pg.transform.scale(self.image, (width, height))
+            self.size = (width, height)
+            self.image = pg.transform.scale(self.image, self.size)
         self.rect = self.image.get_rect(topleft=(x, y))
 
         # Velocity
@@ -747,6 +804,9 @@ class SpriteObject(pg.sprite.Sprite):
         """Update animator if exists, return current frame."""
         if self.animator:
             self.image = self.animator.update(tick)
+            # Keep the size given when the sprite was made
+            if self.size and self.image.get_size() != self.size:
+                self.image = pg.transform.scale(self.image, self.size)
 
     def collides_with(self, other):
         """Check collision with another SpriteObject."""
@@ -953,6 +1013,7 @@ class Popup:
         self.title = title
         self.visible = False
         self.children = []
+        self.title_height = 40   # children are placed below the title bar
         self.close_button = Button(width - 30, 10, 20, 20, "X", colour=(200, 60, 60),
                                    hover_colour=(255, 80, 80), center=False,
                                    action=self.hide)
@@ -967,16 +1028,22 @@ class Popup:
     def hide(self):
         self.visible = False
 
-    def handle_event(self, event):
+    def _offsets(self, offset):
+        """Return (popup top-left, children top-left) on screen."""
+        px = self.rect.x + offset[0]
+        py = self.rect.y + offset[1]
+        return (px, py), (px, py + self.title_height)
+
+    def handle_event(self, event, offset=(0, 0)):
         """Only handle events when visible."""
         if not self.visible:
             return
 
-        # Prevent clicks from reaching background by consuming events
+        popup_pos, child_pos = self._offsets(offset)
         for child in self.children:
             if hasattr(child, "handle_event"):
-                child.handle_event(event, offset=self.rect.topleft)
-        self.close_button.handle_event(event, offset=self.rect.topleft)
+                child.handle_event(event, offset=child_pos)
+        self.close_button.handle_event(event, offset=popup_pos)
 
     def update(self, tick):
         """Update animations or child widgets."""
@@ -986,9 +1053,12 @@ class Popup:
             if hasattr(child, "update"):
                 child.update(tick)
 
-    def draw(self, screen):
+    def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
+
+        popup_pos, child_pos = self._offsets(offset)
+        box = pg.Rect(popup_pos, self.rect.size)
 
         # Dim background (optional)
         overlay = pg.Surface(screen.get_size(), pg.SRCALPHA)
@@ -996,21 +1066,21 @@ class Popup:
         screen.blit(overlay, (0, 0))
 
         # Draw popup background
-        pg.draw.rect(screen, self.bg_color, self.rect, border_radius=10)
-        pg.draw.rect(screen, (0, 0, 0), self.rect, 2, border_radius=10)
+        pg.draw.rect(screen, self.bg_color, box, border_radius=10)
+        pg.draw.rect(screen, (0, 0, 0), box, 2, border_radius=10)
 
         # Title
         font = pg.font.SysFont(None, 24)
         title_surface = font.render(self.title, True, (0, 0, 0))
-        screen.blit(title_surface, (self.rect.x + 10, self.rect.y + 10))
+        screen.blit(title_surface, (box.x + 10, box.y + 10))
 
-        # Draw children
+        # Draw children (below the title bar)
         for child in self.children:
             if hasattr(child, "draw"):
-                child.draw(screen, offset=self.rect.topleft)
-        
+                child.draw(screen, offset=child_pos)
+
         # Close button
-        self.close_button.draw(screen, offset=self.rect.topleft)
+        self.close_button.draw(screen, offset=popup_pos)
 
 # ================================
 # World Class
