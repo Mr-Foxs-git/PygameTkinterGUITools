@@ -1162,4 +1162,294 @@ class World:
             surface.blit(tile.image, (tx, ty))
 
 
+# ================================
+# Joystick Manager Class
+# ================================
 
+class JoystickManager:
+    """
+    Reads any game controller pygame can see (Xbox, PlayStation, Switch,
+    cheap USB pads, arcade sticks...).
+
+    Every controller numbers its buttons, axes and hats differently, so:
+      1. Turn on debug=True and press things to see pygame's numbers.
+      2. Give those numbers names with bind_button / bind_axis / bind_hat.
+      3. Read them with is_pressed("jump"), get_axis("move_x") etc.
+
+    Parameters:
+        index    - which controller to use (0 = first, 1 = second...)
+        deadzone - small stick movements below this are ignored (0.0 - 1.0)
+        debug    - if True, print every button / axis / hat change
+
+    Put pad.handle_event(event) in handle_inputs()
+    and pad.update() at the start of update(tick).
+    """
+
+    def __init__(self, index=0, deadzone=0.15, debug=False):
+        self.index = index
+        self.deadzone = deadzone
+        self.debug = debug
+        self.joystick = None
+
+        # Names the student gives to pygame's numbers
+        self.button_binds = {}     # "jump"   -> 0
+        self.axis_binds = {}       # "move_x" -> (0, invert)
+        self.hat_binds = {}        # "dpad"   -> 0
+        self.commands = {}         # button number -> list of functions
+
+        # Buttons held this frame and last frame (for was_pressed)
+        self._held = set()
+        self._held_before = set()
+
+        self._font = None
+
+        if not pg.joystick.get_init():
+            pg.joystick.init()
+        self.connect_joystick()
+
+    # -----------------------------
+    # Connecting
+    # -----------------------------
+    def connect_joystick(self):
+        """Connect to the controller number self.index (if plugged in)."""
+        if pg.joystick.get_count() > self.index:
+            self.joystick = pg.joystick.Joystick(self.index)
+            self.joystick.init()
+            print("Connected:", self.joystick.get_name())
+        else:
+            self.joystick = None
+            print("No controller connected")
+
+    @property
+    def connected(self):
+        """True if a controller is plugged in."""
+        return self.joystick is not None
+
+    def _is_mine(self, event):
+        """True if this event came from our controller."""
+        if self.joystick is None:
+            return False
+        if hasattr(event, "instance_id"):
+            return event.instance_id == self.joystick.get_instance_id()
+        return True
+
+    # -----------------------------
+    # Game loop methods
+    # -----------------------------
+    def handle_event(self, event):
+        """Call this for every event in handle_inputs()."""
+        # Controller plugged in while the game is running
+        if event.type == pg.JOYDEVICEADDED:
+            if self.joystick is None:
+                self.connect_joystick()
+            return
+
+        # Controller unplugged
+        if event.type == pg.JOYDEVICEREMOVED:
+            if self.joystick is not None and \
+                    event.instance_id == self.joystick.get_instance_id():
+                self.joystick = None
+                self._held = set()
+                self._held_before = set()
+                print("Controller disconnected")
+            return
+
+        if not self._is_mine(event):
+            return
+
+        if self.debug:
+            self.debug_event(event)
+
+        # Run any command= functions linked to this button
+        if event.type == pg.JOYBUTTONDOWN:
+            for command in self.commands.get(event.button, []):
+                command()
+
+    def update(self):
+        """Call this once per frame, at the start of update(tick)."""
+        self._held_before = self._held
+        self._held = set()
+        if self.joystick is None:
+            return
+        for number in range(self.joystick.get_numbuttons()):
+            if self.joystick.get_button(number):
+                self._held.add(number)
+
+    # -----------------------------
+    # Linking names to numbers
+    # -----------------------------
+    def bind_button(self, name, number, command=None):
+        """Give button `number` a name. Optional command runs when pressed."""
+        self.button_binds[name] = number
+        if command is not None:
+            self.commands.setdefault(number, []).append(command)
+
+    def bind_axis(self, name, number, invert=False):
+        """Give axis `number` a name. invert=True flips the direction."""
+        self.axis_binds[name] = (number, invert)
+
+    def bind_hat(self, name, number):
+        """Give hat (D-pad) `number` a name."""
+        self.hat_binds[name] = number
+
+    def _lookup(self, binds, name, kind):
+        """Turn a name into a number. Numbers are passed straight through."""
+        if isinstance(name, str):
+            if name not in binds:
+                raise ValueError(f"No {kind} called '{name}'. "
+                                 f"Use bind_{kind}('{name}', number) first.")
+            return binds[name]
+        return name
+
+    # -----------------------------
+    # Reading buttons
+    # -----------------------------
+    def get_button(self, button):
+        """True while the button is held. button can be a number or a name."""
+        number = self._lookup(self.button_binds, button, "button")
+        if self.joystick is None or not 0 <= number < self.joystick.get_numbuttons():
+            return False
+        return bool(self.joystick.get_button(number))
+
+    def is_pressed(self, button):
+        """True while the button is held down (same as get_button)."""
+        return self.get_button(button)
+
+    def was_pressed(self, button):
+        """True only on the frame the button was pressed (like KEYDOWN)."""
+        number = self._lookup(self.button_binds, button, "button")
+        return number in self._held and number not in self._held_before
+
+    def was_released(self, button):
+        """True only on the frame the button was let go (like KEYUP)."""
+        number = self._lookup(self.button_binds, button, "button")
+        return number not in self._held and number in self._held_before
+
+    # -----------------------------
+    # Reading sticks and D-pads
+    # -----------------------------
+    def get_axis(self, axis):
+        """
+        Stick / trigger position from -1.0 to 1.0, with the deadzone applied.
+        axis can be a number or a name.
+        """
+        if isinstance(axis, str):
+            number, invert = self._lookup(self.axis_binds, axis, "axis")
+        else:
+            number, invert = axis, False
+
+        if self.joystick is None or not 0 <= number < self.joystick.get_numaxes():
+            return 0
+
+        value = self.joystick.get_axis(number)
+
+        # Apply deadzone, then stretch the rest so it still goes smoothly 0 -> 1
+        if abs(value) < self.deadzone:
+            value = 0
+        else:
+            sign = 1 if value > 0 else -1
+            value = sign * (abs(value) - self.deadzone) / (1 - self.deadzone)
+            value = max(-1.0, min(1.0, value))
+
+        if invert:
+            value = -value
+        return value
+
+    def get_hat(self, hat):
+        """D-pad direction as (x, y), e.g. (-1, 0) = left. Number or name."""
+        number = self._lookup(self.hat_binds, hat, "hat")
+        if self.joystick is None or not 0 <= number < self.joystick.get_numhats():
+            return (0, 0)
+        return self.joystick.get_hat(number)
+
+    # -----------------------------
+    # Saving the student's controls
+    # -----------------------------
+    def save_bindings(self, filename):
+        """Save the bound names to a JSON file (commands are not saved)."""
+        import json
+        data = {
+            "buttons": self.button_binds,
+            "axes": {name: list(v) for name, v in self.axis_binds.items()},
+            "hats": self.hat_binds,
+        }
+        with open(filename, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def load_bindings(self, filename):
+        """Load names saved with save_bindings."""
+        import json
+        with open(filename) as f:
+            data = json.load(f)
+        self.button_binds.update(data.get("buttons", {}))
+        for name, (number, invert) in data.get("axes", {}).items():
+            self.axis_binds[name] = (number, invert)
+        self.hat_binds.update(data.get("hats", {}))
+
+    # -----------------------------
+    # Debugging
+    # -----------------------------
+    def debug_event(self, event):
+        """Print what pygame reports, so you can find the numbers to bind."""
+        if event.type == pg.JOYBUTTONDOWN:
+            print(f"Button PRESSED: {event.button}")
+
+        elif event.type == pg.JOYBUTTONUP:
+            print(f"Button RELEASED: {event.button}")
+
+        elif event.type == pg.JOYAXISMOTION:
+            # Only print significant axis movement
+            if abs(event.value) > self.deadzone:
+                print(f"Axis {event.axis}: {event.value:.2f}")
+
+        elif event.type == pg.JOYHATMOTION:
+            print(f"Hat {event.hat}: {event.value}")
+
+    def draw_debug(self, screen, x=10, y=10):
+        """Draw a live panel showing every button, axis and hat."""
+        if self._font is None:
+            self._font = pg.font.SysFont(None, 22)
+        font = self._font
+        white = (255, 255, 255)
+
+        if self.joystick is None:
+            screen.blit(font.render("No controller connected", True, white), (x, y))
+            return
+
+        js = self.joystick
+        screen.blit(font.render(js.get_name(), True, white), (x, y))
+        y += 28
+
+        # Buttons: numbered circles, lit while held
+        screen.blit(font.render("Buttons", True, white), (x, y))
+        y += 20
+        for n in range(js.get_numbuttons()):
+            cx = x + 15 + (n % 8) * 36
+            cy = y + 15 + (n // 8) * 36
+            colour = (80, 220, 80) if js.get_button(n) else (70, 70, 70)
+            pg.draw.circle(screen, colour, (cx, cy), 14)
+            label = font.render(str(n), True, white)
+            screen.blit(label, label.get_rect(center=(cx, cy)))
+        y += ((js.get_numbuttons() + 7) // 8) * 36 + 10
+
+        # Axes: bars from -1 to 1
+        screen.blit(font.render("Axes", True, white), (x, y))
+        y += 20
+        for n in range(js.get_numaxes()):
+            value = js.get_axis(n)
+            screen.blit(font.render(f"{n}: {value:+.2f}", True, white), (x, y))
+            bar = pg.Rect(x + 80, y + 2, 160, 12)
+            pg.draw.rect(screen, (70, 70, 70), bar)
+            mid = bar.centerx
+            end = mid + int(value * bar.width / 2)
+            pg.draw.rect(screen, (80, 160, 255),
+                         pg.Rect(min(mid, end), bar.y, abs(end - mid) or 1, bar.height))
+            y += 20
+        y += 10
+
+        # Hats (D-pads)
+        screen.blit(font.render("Hats", True, white), (x, y))
+        y += 20
+        for n in range(js.get_numhats()):
+            screen.blit(font.render(f"{n}: {js.get_hat(n)}", True, white), (x, y))
+            y += 20

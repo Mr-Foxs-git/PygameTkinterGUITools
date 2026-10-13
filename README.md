@@ -110,12 +110,35 @@ while True:
 | `TiledMap` | Loads a `.tmx` map made in Tiled |
 | `Tile` / `AnimatedTile` | Map tiles (static or animated) |
 | `World` | Puts a map, camera and sprites together |
+| `JoystickManager` | Reads any game controller (see below) |
 
-Coming soon: `Joystick`, for reading game controllers.
+### Game controllers
+
+Every controller numbers its buttons differently, so:
+
+1. Run [`examples/joystick_debug.py`](examples/joystick_debug.py) and press
+   things to see pygame's numbers.
+2. Give the numbers names, then use the names in your game:
+
+```python
+pad = JoystickManager(0)                 # in init_pygame()
+pad.bind_button("jump", 0)
+pad.bind_axis("move_x", 0)
+pad.bind_hat("dpad", 0)
+
+pad.handle_event(event)                  # in handle_inputs()
+
+pad.update()                             # at the start of update(tick)
+if pad.was_pressed("jump"):
+    ...
+speed_x = pad.get_axis("move_x")         # -1.0 to 1.0
+```
+
+See [`examples/joystick_move.py`](examples/joystick_move.py) for a full game.
 
 ## Testing
 
-Run `tests/test_phase_a.py` to check the library works. It prints
+Run `tests/test_phase_a.py` and `tests/test_joystick.py` to check the library works. It prints
 `ALL TESTS PASS` if everything is OK.
 
 ## Opening in Visual Studio
