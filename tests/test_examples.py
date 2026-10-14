@@ -12,6 +12,7 @@ import glob
 import traceback
 
 os.environ["SDL_VIDEODRIVER"] = "dummy"
+os.environ["SDL_AUDIODRIVER"] = "dummy"          # no sound plays while testing
 import pygame as pg
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -58,6 +59,11 @@ import PygameTkinterGUITools
 results = []
 for path in EXAMPLES:
     PygameTkinterGUITools._font_cache.clear()    # fonts don't survive pg.quit()
+    PygameTkinterGUITools._image_cache.clear()
+    PygameTkinterGUITools.Style().reset()         # each example starts with the light theme
+    PygameTkinterGUITools.Audio._sounds.clear()
+    PygameTkinterGUITools.Music._playlist = []
+    PygameTkinterGUITools.Music._next = None
     name = os.path.basename(path)
     pg.event.get = make_fake_get()
     pg.key.get_pressed = lambda: FakeKeys()

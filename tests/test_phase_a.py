@@ -47,7 +47,7 @@ f = g.Frame(50, 50, 200, 150, bg=(1, 2, 3), border_colour=(4, 5, 6), border_widt
 check("A4 Frame bg / border_colour / border_width work",
       (f.bg, f.border_color, f.border_width) == ((1, 2, 3), (4, 5, 6), 5))
 f2 = g.Frame(0, 0, 10, 10)
-check("A4 Frame defaults", (f2.bg, f2.border_width) == ((60, 60, 60), 2))
+check("A4 Frame defaults (from Style)", (f2.cget("bg"), f2.cget("border_width")) == ((60, 60, 60), 2))
 
 # A5 Button inside Frame (frame 50 + pad 10 + button 10 = 70)
 hits.clear()

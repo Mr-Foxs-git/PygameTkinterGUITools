@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<map version="1.10" tiledversion="1.10.2" orientation="orthogonal" renderorder="right-down" width="30" height="20" tilewidth="32" tileheight="32" infinite="0" nextlayerid="4" nextobjectid="17">
+<map version="1.10" tiledversion="1.10.2" orientation="orthogonal" renderorder="right-down" width="30" height="20" tilewidth="32" tileheight="32" infinite="0" nextlayerid="4" nextobjectid="20">
  <tileset firstgid="1" name="tiles" tilewidth="32" tileheight="32" tilecount="7" columns="7">
   <image source="tiles.png" width="224" height="32"/>
   <tile id="3">
@@ -74,5 +74,19 @@
   <object id="14" name="coin" class="coin" x="648" y="520" width="16" height="16"/>
   <object id="15" name="coin" class="coin" x="392" y="72" width="16" height="16"/>
   <object id="16" name="exit" class="trigger" x="864" y="320" width="32" height="64"/>
+  <object id="17" name="guard_route" x="560" y="80">
+   <polygon points="0,0 256,0 256,192 0,192"/>
+  </object>
+  <object id="18" name="guard" class="enemy" x="544" y="64" width="28" height="28">
+   <properties>
+    <property name="ai" value="path"/>
+    <property name="path" value="guard_route"/>
+   </properties>
+  </object>
+  <object id="19" name="hunter" class="enemy" x="704" y="512" width="28" height="28">
+   <properties>
+    <property name="ai" value="chase"/>
+   </properties>
+  </object>
  </objectgroup>
 </map>

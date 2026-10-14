@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>f455a13a-f7b3-42d7-99ec-a801e987b2df</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>examples\label_example.py</StartupFile>
+    <StartupFile>examples\drag_grid_example.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -33,6 +33,21 @@
     <Compile Include="examples\textbox_example.py" />
     <Compile Include="examples\tiled_example.py" />
     <Compile Include="tests\test_examples.py" />
+    <Compile Include="examples\checkbutton_radiobutton_example.py" />
+    <Compile Include="examples\listbox_combobox_example.py" />
+    <Compile Include="examples\message_example.py" />
+    <Compile Include="examples\progressbar_example.py" />
+    <Compile Include="examples\scale_spinbox_example.py" />
+    <Compile Include="examples\settings_menu_example.py" />
+    <Compile Include="examples\style_example.py" />
+    <Compile Include="tests\test_phase_e.py" />
+    <Compile Include="examples\drag_grid_example.py" />
+    <Compile Include="examples\keyboard_sound_example.py" />
+    <Compile Include="examples\music_example.py" />
+    <Compile Include="tests\test_sound_input_drag.py" />
+    <Compile Include="examples\platformer_example.py" />
+    <Compile Include="examples\topdown_ai_example.py" />
+    <Compile Include="tests\test_movement.py" />
     <Compile Include="examples\joystick_debug.py" />
     <Compile Include="examples\joystick_move.py" />
     <Compile Include="tests\test_phase_a.py" />
@@ -43,11 +58,40 @@
     <Folder Include="examples\" />
     <Folder Include="tests\" />
     <Folder Include="examples\assets\" />
+    <Folder Include="examples\assets\sounds\" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="CLAUDE.md" />
     <Content Include="README.md" />
     <Content Include="requirements.txt" />
+    <Content Include="examples\assets\button.png" />
+    <Content Include="examples\assets\button_hover.png" />
+    <Content Include="examples\assets\check_off.png" />
+    <Content Include="examples\assets\check_on.png" />
+    <Content Include="examples\assets\hearts_full.png" />
+    <Content Include="examples\assets\hearts_empty.png" />
+    <Content Include="examples\assets\item_sword.png" />
+    <Content Include="examples\assets\item_shield.png" />
+    <Content Include="examples\assets\item_potion.png" />
+    <Content Include="examples\assets\item_gem.png" />
+    <Content Include="examples\assets\item_key.png" />
+    <Content Include="examples\assets\sounds\click.wav" />
+    <Content Include="examples\assets\sounds\coin.wav" />
+    <Content Include="examples\assets\sounds\engine_loop.wav" />
+    <Content Include="examples\assets\sounds\explosion.wav" />
+    <Content Include="examples\assets\sounds\jump.wav" />
+    <Content Include="examples\assets\sounds\laser.wav" />
+    <Content Include="examples\assets\sounds\music_level.wav" />
+    <Content Include="examples\assets\sounds\music_menu.wav" />
+    <Content Include="examples\assets\sounds\step1.wav" />
+    <Content Include="examples\assets\sounds\step2.wav" />
+    <Content Include="examples\assets\sounds\step3.wav" />
+    <Content Include="examples\assets\platform_tiles.png" />
+    <Content Include="examples\assets\slime_sheet.png" />
+    <Content Include="examples\assets\angry_slime_sheet.png" />
+    <Content Include="examples\assets\bat_sheet.png" />
+    <Content Include="examples\assets\ghost_sheet.png" />
+    <Content Include="examples\assets\platformer.tmx" />
     <Content Include="examples\assets\coin.png" />
     <Content Include="examples\assets\coin_sheet.png" />
     <Content Include="examples\assets\level1.tmx" />

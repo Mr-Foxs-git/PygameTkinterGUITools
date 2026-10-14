@@ -101,6 +101,18 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Let the player type (e.g. their name) | [`textbox_example.py`](examples/textbox_example.py) |
 | Make a menu that shows / hides | [`frame_example.py`](examples/frame_example.py) |
 | Show a pop-up message (Game Over...) | [`popup_example.py`](examples/popup_example.py) |
+| Tick boxes and "choose one" options | [`checkbutton_radiobutton_example.py`](examples/checkbutton_radiobutton_example.py) |
+| Sliders and number pickers | [`scale_spinbox_example.py`](examples/scale_spinbox_example.py) |
+| Lists and drop-down menus | [`listbox_combobox_example.py`](examples/listbox_combobox_example.py) |
+| Dialogue / instructions that wrap | [`message_example.py`](examples/message_example.py) |
+| Health, energy and loading bars | [`progressbar_example.py`](examples/progressbar_example.py) |
+| Change how everything looks (themes, images) | [`style_example.py`](examples/style_example.py) |
+| A pause menu with tabs, used with the keyboard | [`settings_menu_example.py`](examples/settings_menu_example.py) |
+| Sounds on key presses (pressed vs held keys) | [`keyboard_sound_example.py`](examples/keyboard_sound_example.py) |
+| Background music and volume controls | [`music_example.py`](examples/music_example.py) |
+| Drag things with the mouse, inventory slots, item stats | [`drag_grid_example.py`](examples/drag_grid_example.py) |
+| A platformer: gravity, jumping, ladders, enemies | [`platformer_example.py`](examples/platformer_example.py) |
+| Top-down enemies: routes, spotting and chasing the player | [`topdown_ai_example.py`](examples/topdown_ai_example.py) |
 | Animate a character from a sprite sheet | [`animator_example.py`](examples/animator_example.py) |
 | Move a player and collect things | [`sprite_example.py`](examples/sprite_example.py) |
 | Have a world bigger than the screen | [`camera_example.py`](examples/camera_example.py) |
@@ -152,6 +164,35 @@ and move, hide and update with it.
 | `Button` | A clickable button that runs a `command` function |
 | `TextBox` | A box the player can type into (like tkinter `Entry`) |
 | `Popup` | A pop-up window with a title and close button |
+| `Checkbutton` | A tick box (on / off) |
+| `Radiobutton` | Choose one option from a group |
+| `Scale` | A slider for choosing a number |
+| `Spinbox` | A number or choice with up / down arrows |
+| `Listbox` | A scrolling list to choose from |
+| `Combobox` | A drop-down list (ttk) |
+| `Message` | Text that wraps onto several lines |
+| `Progressbar` | A filling bar: health, energy, loading (ttk) |
+| `LabelFrame` | A Frame with a title on its border |
+| `Notebook` | Tabs, each with its own page (ttk) |
+| `Separator` | A dividing line (ttk) |
+| `IntVar`, `StringVar`, `BooleanVar`, `DoubleVar` | Values shared between widgets, like tkinter |
+| `Style` | Colours and fonts for every widget, built-in themes (ttk) |
+| `FocusGroup` | Use widgets with the keyboard or a controller |
+| `KeyboardInput` | Was a key just pressed, is it held, was it let go? |
+| `MouseInput` | The same for mouse buttons, plus position and scroll wheel |
+| `SoundEffect` | Short sounds, safe to use in the game loop |
+| `Music` | Background music with fades and playlists |
+| `Audio`, `init_audio()` | Sound setup and volume (links to widgets) |
+| `Grid` | Cells for inventories, boards and level editors |
+| `DragObject`, `DragGroup` | Things you can drag with the mouse, with or without a grid |
+| `Tooltip` | Text that appears when the mouse rests on anything |
+| `Path`, `PathFollower` | Routes for enemies and moving platforms (can be drawn in Tiled) |
+| `Patrol` | Walk left and right, turning at walls and ledges |
+| `Chaser` | Spot a target (range + line of sight) and chase it, then go home |
+| `NavGrid` | Path finding: find a way around walls |
+| `TopDownBody` | Movement with wall collisions for top-down games |
+| `PlatformerBody` | Gravity, jumping, one-way platforms and ladders |
+| `MovingPlatform` | A platform that follows a path and carries the player |
 | `draw_text()` | Quickly draw text on the screen |
 
 ### Game helpers
@@ -248,6 +289,172 @@ In Tiled, give objects a **Class** of `collision` or `trigger`, name spawn
 points with "spawn" in the name, and put a layer named "Foreground" in front
 of the player.
 
+### Variables (shared values)
+```python
+volume = IntVar(50)                     # also StringVar, BooleanVar, DoubleVar
+Scale(50, 100, from_=0, to=100, variable=volume)
+Label(50, 150, textvariable=volume)     # always shows the current value
+volume.get()   volume.set(80)
+```
+Radiobuttons with the same variable form a group:
+```python
+difficulty = StringVar("Normal")
+Radiobutton(50, 50, "Easy", variable=difficulty, value="Easy")
+Radiobutton(50, 80, "Hard", variable=difficulty, value="Hard")
+```
+
+### More widgets
+```python
+Checkbutton(50, 50, "Music", variable=music_on)            # BooleanVar
+Spinbox(50, 100, from_=1, to=4, variable=players)
+Listbox(50, 150, 200, rows=5, items=["Level 1", "Level 2"]) # .get_selected()
+Combobox(300, 50, 200, values=["Knight", "Wizard"], textvariable=hero)
+Message(50, 300, "Long text that wraps...", width=400)
+health = Progressbar(20, 20, 200, maximum=100, value=100)   # health.step(-10)
+settings = Notebook(100, 50, 400, 300)
+sound_tab = settings.new_tab("Sound")                       # a Frame to add() to
+```
+Draw a Combobox after the widgets below it, so its open list is on top
+(inside a Frame or Notebook this is done for you).
+
+### Style and themes
+```python
+style = Style()
+style.theme_use("dark")                          # "light", "dark" or "retro"
+style.configure("Button", border_radius=10)      # every Button
+style.configure("Danger.Button", bg=(200, 0, 0)) # a named style...
+Button(10, 10, 120, 40, "Quit", style="Danger.Button")
+```
+Options you give a widget always beat the Style. Use your own pictures with
+`image=` (Button, Label, Checkbutton, Radiobutton), `handle_image=` (Scale)
+and `bar_image=` / `trough_image=` (Progressbar).
+
+### Keyboard and controller control (FocusGroup)
+```python
+menu_focus = FocusGroup(play_button, volume_slider, music_check, keys="arrows")
+menu_focus.active = True        # only while the menu is open!
+
+# in handle_inputs():
+if not menu_focus.handle_event(event):   # True means the menu used the key
+    ...your game's own controls...
+```
+It does nothing until `active` is True, and only uses the keys you choose
+(`"arrows"`, `"tab"`, `"wasd"`), so it won't fight with your game controls.
+`menu_focus.use_joystick(pad, "dpad", "A")` lets a controller use it too.
+
+### Pressed or held? (KeyboardInput / MouseInput)
+```python
+keys = KeyboardInput()                  # in init_pygame()
+keys.bind("jump", "space", "w")
+
+keys.handle_event(event)                # in handle_inputs()
+keys.update(tick)                       # FIRST thing in update(tick)
+
+if keys.was_pressed("jump"):            # ONE frame -> one jump, one sound
+    jump_sound.play()
+if keys.is_pressed("right"):            # EVERY frame while held -> movement
+    player.move(5, 0)
+```
+`MouseInput` works the same way with `"left"`, `"middle"` and `"right"`,
+plus `mouse.pos`, `mouse.moved` and `mouse.wheel`.
+
+### Sound
+```python
+init_audio()                            # in init_pygame(), BEFORE pg.init()
+jump = SoundEffect("jump.wav")
+laser = SoundEffect("laser.wav", cooldown=150)   # safe to call while held
+steps = SoundEffect(["step1.wav", "step2.wav"])  # random choice each time
+
+jump.play()
+coin.play_on(player.collides_with(coin))         # only when it BECOMES True
+engine.play_while(keys.is_pressed("thrust"))     # loops while True
+
+Music.play("menu.wav")                  # loops forever
+Music.switch("level.wav", fade_ms=800)  # needs Music.update(tick) in update
+Audio.link(music_volume=volume_var, sfx_volume=sfx_var, muted=mute_var)
+```
+If a computer has no sound output, sounds are skipped and the game still runs.
+
+### Dragging and grids
+```python
+backpack = Grid(60, 120, cols=5, rows=3, cell_size=72)
+sword = DragObject(0, 0, 56, 56, image="sword.png", grid=backpack)
+backpack.place(sword, 0, 0)
+note = DragObject(100, 400, 140, 90, bounds=screen.get_rect())   # no grid: drag anywhere
+
+items = DragGroup(sword, note)          # only the top item is picked up
+items.handle_event(event)               # in handle_inputs()
+backpack.draw(screen)                   # shows where a dragged item will land
+items.draw(screen)
+```
+`grid=[backpack, equipment]` lets items move between grids. Items dropped on a
+taken cell or outside the grid go back where they came from.
+
+Item kinds, slots and stats:
+```python
+sword = DragObject(0, 0, 56, 56, image="sword.png", name="Iron Sword",
+                   kind=["weapon", "sword"], stats={"damage": 7, "weight": 3})
+equipment.set_slot(0, 0, accepts="weapon", label="Weapon")      # only weapons
+potion_belt = Grid(..., accepts="potion")                        # a whole grid
+heavy_slot = ...set_slot(1, 0, accepts=lambda item: item.stats.get("weight", 0) > 5)
+sword.stats["damage"]   sword.is_kind("weapon")
+```
+`stats` can hold anything you like. Show it with a `Tooltip`:
+```python
+tips = Tooltip()
+tips.attach(sword, lambda item: f"{item.name}\nDamage: {item.stats['damage']}")
+tips.update(tick)          # in update(tick)
+tips.draw(screen)          # LAST in draw_game()
+```
+
+### Movement building blocks
+Mix and match these for any kind of game:
+
+| Block | What it does | Top-down | Platformer |
+|---|---|---|---|
+| `TopDownBody` | moves with wall collisions | yes | |
+| `PlatformerBody` | gravity, jumps, platforms, ladders | | yes |
+| `PathFollower` | follows a `Path` | yes | yes (`axis="x"` or flying) |
+| `Patrol` | walks left / right, turns at walls and ledges | | yes |
+| `Chaser` | spots a target, chases it, goes home | yes (with `NavGrid`) | yes |
+
+```python
+# Platformer player
+body = PlatformerBody(player, solids=walls, platforms=planks, ladders=ladders)
+body.move(keys.is_pressed("right") - keys.is_pressed("left"))
+if keys.was_pressed("jump"):   body.jump()
+if keys.was_released("jump"):  body.release_jump()     # small jump
+body.update(tick)
+
+# An enemy that walks a route, and chases the player if it sees them
+route = level.get_path("guard_route")
+walk = PathFollower(guard, route, speed=90, wait=400)
+brain = Chaser(guard, player, speed=140, detect_range=220, solids=walls,
+               nav=NavGrid.from_tiled(level, agent_size=28), idle=walk)
+brain.update(tick)
+brain.draw_debug(screen, camera)     # ranges, line of sight, route
+Path.show_all = False                # hide all debug paths when finished
+```
+Things that move with a body: update the "brain" (PathFollower, Patrol, Chaser)
+first, then the body.
+
+### Drawing a path in Tiled
+1. Select your object layer (e.g. "Objects").
+2. Choose **Insert Polyline** (press **L**) for a route that goes there and
+   back, or **Insert Polygon** (press **P**) for a route that loops.
+3. Click each point of the route. Double-click (or press Enter) to finish.
+4. In the **Properties** panel, type a **Name**, e.g. `guard_route`.
+5. Optional: add a custom property `mode` (string): `loop`, `ping_pong` or `once`.
+6. In your code: `route = level.get_path("guard_route")`.
+7. To link an enemy to a path in Tiled, give the enemy object a custom
+   property `path` = `guard_route` and read it with
+   `info["properties"]["path"]` (see `platformer_example.py`).
+
+Other objects the examples use: **Class** `collision` (walls), `platform`
+(one-way platforms), `ladder`, `trigger`, `enemy` - read them with
+`level.collision_objects`, `level.rects_of_type("ladder")`,
+`level.objects_of_type("enemy")`.
+
 ### Game controllers
 
 Every controller numbers its buttons differently, so:
@@ -280,7 +487,9 @@ be used freely in student games.
 ## Testing
 
 Run the files in `tests/` to check the library works.
-`tests/test_examples.py` runs every example for a couple of seconds. It prints
+`tests/test_examples.py` runs every example for a couple of seconds.
+The example sounds in `examples/assets/sounds/` were generated for this library
+and are free to use. It prints
 `ALL TESTS PASS` if everything is OK.
 
 ## Opening in Visual Studio

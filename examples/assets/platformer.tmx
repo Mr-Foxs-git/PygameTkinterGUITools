@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" tiledversion="1.10.2" orientation="orthogonal" renderorder="right-down" width="40" height="19" tilewidth="32" tileheight="32" infinite="0" nextlayerid="3" nextobjectid="19">
+ <tileset firstgid="1" name="platform_tiles" tilewidth="32" tileheight="32" tilecount="6" columns="6">
+  <image source="platform_tiles.png" width="192" height="32"/>
+ </tileset>
+ <layer id="1" name="Ground" width="40" height="19">
+  <data encoding="csv">
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,3,4,3,3,3,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,3,4,3,3,3,0,0,0,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,5,
+5,0,0,0,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,5,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,5,
+5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,5,0,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,5,
+5,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,
+5,2,2,2,2,2,2,2,2,2,2,2,6,6,6,6,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,5
+</data>
+ </layer>
+ <objectgroup id="2" name="Objects">
+  <object id="1" name="player_spawn" x="96" y="480"/>
+  <object id="2" class="collision" x="32" y="544" width="352" height="64"/>
+  <object id="3" class="collision" x="512" y="544" width="736" height="64"/>
+  <object id="4" class="collision" x="0" y="0" width="32" height="608"/>
+  <object id="5" class="collision" x="1248" y="0" width="32" height="608"/>
+  <object id="6" class="collision" x="640" y="480" width="64" height="64"/>
+  <object id="7" class="platform" x="128" y="416" width="192" height="10"/>
+  <object id="8" class="platform" x="768" y="320" width="256" height="10"/>
+  <object id="9" class="platform" x="960" y="224" width="256" height="10"/>
+  <object id="10" class="ladder" x="896" y="320" width="32" height="224"/>
+  <object id="11" class="ladder" x="1088" y="224" width="32" height="96"/>
+  <object id="12" name="spikes" class="trigger" x="384" y="588" width="128" height="20"/>
+  <object id="13" name="lift_route" x="416" y="552">
+   <properties>
+    <property name="mode" value="ping_pong"/>
+   </properties>
+   <polyline points="0,0 96,0"/>
+  </object>
+  <object id="14" name="bat_route" x="704" y="96">
+   <polygon points="0,0 224,0 224,96 0,96"/>
+  </object>
+  <object id="15" name="lift" class="moving_platform" x="384" y="544" width="64" height="16">
+   <properties>
+    <property name="path" value="lift_route"/>
+    <property name="speed" value="70"/>
+   </properties>
+  </object>
+  <object id="16" name="slime" class="enemy" x="544" y="512" width="32" height="32">
+   <properties>
+    <property name="ai" value="patrol"/>
+   </properties>
+  </object>
+  <object id="17" name="bat" class="enemy" x="704" y="96" width="32" height="32">
+   <properties>
+    <property name="ai" value="path"/>
+    <property name="path" value="bat_route"/>
+   </properties>
+  </object>
+  <object id="18" name="angry_slime" class="enemy" x="1056" y="512" width="32" height="32">
+   <properties>
+    <property name="ai" value="chase"/>
+   </properties>
+  </object>
+ </objectgroup>
+</map>

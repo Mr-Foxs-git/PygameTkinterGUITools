@@ -30,7 +30,37 @@ Animator, Tiled map loading, and soon a Joystick class).
      `font_name`, `font_size`, `border_color`, `border_width`, `center`.
    - Colour options: US spelling `color` is the main name; also accept the
      `colour` spelling (via `_pick()` in `__init__` and `_aliases` for config).
-   - Use `get_font()` (cached) instead of `pg.font.SysFont()`.
+   - Use `get_font()` (cached) instead of `pg.font.SysFont()`, and
+     `load_image()` (cached, scaled) for image skins.
+   - Widget options default to None and are read with `self.cget("option")`,
+     which falls back to the `Style` (your configure() -> theme -> "light").
+     New widgets need an entry in `THEMES["light"]` for any option they add.
+   - Shared values use `IntVar`/`StringVar`/`BooleanVar`/`DoubleVar`
+     (`variable=` / `textvariable=`). `command` functions take no arguments.
+   - `handle_event` returns True if the widget used the event.
+   - Keyboard focus: widgets set `takes_focus = True` and implement
+     `focus_action(action)`. `FocusGroup` must stay opt-in (off until
+     `active = True`) and only use the keys chosen, so it never clashes with
+     the student's game controls.
+   - Containers set `child.parent`; use `widget.active` / `widget.showing`
+     (which check the parents) rather than just `visible`.
+   - Input: KeyboardInput / MouseInput / JoystickManager share the API
+     `bind`, `handle_event`, `update(tick)`, `is_pressed` / `was_pressed` /
+     `was_released`. Examples use them instead of `pg.key.get_pressed()` for
+     anything that should happen once per press.
+   - Sound must never crash without an audio device: always go through
+     `Audio.check()`. Examples call `init_audio()` before `pg.init()`.
+   - DragObject works with no grid, one Grid, or a list of Grids. Items have
+     `kinds` and a free-form `stats` dict; Grid / slot `accepts` can be a
+     kind, a list of kinds or a function.
+   - Movement is modular: "brains" (PathFollower, Patrol, Chaser) decide and
+     call `body.move()`; bodies (TopDownBody, PlatformerBody) do collisions.
+     Any brain must work with no body too. Bodies keep float positions in
+     `_pos` and re-sync if the rect is moved from outside.
+   - Debug drawing (paths, ranges, NavGrid) is controlled by `Path.show_all`.
+   - Keep the library modular and genre-neutral: building blocks, not
+     whole games. Tiled conventions: Classes collision / platform / ladder /
+     trigger / enemy; paths are named Polylines / Polygons.
    - Only `TiledMap` may import pytmx (inside the class).
 6. **Dependencies.** Only `pygame` and `pytmx`. Ask before adding any more.
 7. **Examples.** New features should come with a small runnable example in

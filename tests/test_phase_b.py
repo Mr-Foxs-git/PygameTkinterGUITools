@@ -88,7 +88,7 @@ entered = []
 tb = g.TextBox(10, 10, max_chars=5, label="Name:", on_enter=lambda: entered.append(tb.get()))
 box = tb.box_rect.move(tb.rect.topleft)
 tb.handle_event(click(box.center))
-check("Click TextBox makes it active", tb.active)
+check("Click TextBox starts typing", tb.typing)
 for ch in "abcdefg":
     tb.handle_event(key(ord(ch), ch))
 check("TextBox max_chars", tb.get() == "abcde")
