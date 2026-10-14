@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>f455a13a-f7b3-42d7-99ec-a801e987b2df</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>tests\test_phase_b.py</StartupFile>
+    <StartupFile>examples\label_example.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -23,6 +23,16 @@
   <ItemGroup>
     <Compile Include="PygameTkinterGUITools.py" />
     <Compile Include="examples\_template.py" />
+    <Compile Include="examples\animator_example.py" />
+    <Compile Include="examples\button_example.py" />
+    <Compile Include="examples\camera_example.py" />
+    <Compile Include="examples\frame_example.py" />
+    <Compile Include="examples\label_example.py" />
+    <Compile Include="examples\popup_example.py" />
+    <Compile Include="examples\sprite_example.py" />
+    <Compile Include="examples\textbox_example.py" />
+    <Compile Include="examples\tiled_example.py" />
+    <Compile Include="tests\test_examples.py" />
     <Compile Include="examples\joystick_debug.py" />
     <Compile Include="examples\joystick_move.py" />
     <Compile Include="tests\test_phase_a.py" />
@@ -32,11 +42,17 @@
   <ItemGroup>
     <Folder Include="examples\" />
     <Folder Include="tests\" />
+    <Folder Include="examples\assets\" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="CLAUDE.md" />
     <Content Include="README.md" />
     <Content Include="requirements.txt" />
+    <Content Include="examples\assets\coin.png" />
+    <Content Include="examples\assets\coin_sheet.png" />
+    <Content Include="examples\assets\level1.tmx" />
+    <Content Include="examples\assets\player_sheet.png" />
+    <Content Include="examples\assets\tiles.png" />
     <Content Include="tests\test_map.tmx" />
     <Content Include="tests\test_tiles.png" />
   </ItemGroup>

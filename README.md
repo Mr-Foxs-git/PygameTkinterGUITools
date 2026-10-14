@@ -89,6 +89,25 @@ while True:
     draw_game()
 ```
 
+## Which example do I need?
+
+Every example is in [`examples/`](examples/) and uses the same game loop as
+[`_template.py`](examples/_template.py).
+
+| I want to... | Example |
+|---|---|
+| Show text, a score or a timer | [`label_example.py`](examples/label_example.py) |
+| Make clickable buttons | [`button_example.py`](examples/button_example.py) |
+| Let the player type (e.g. their name) | [`textbox_example.py`](examples/textbox_example.py) |
+| Make a menu that shows / hides | [`frame_example.py`](examples/frame_example.py) |
+| Show a pop-up message (Game Over...) | [`popup_example.py`](examples/popup_example.py) |
+| Animate a character from a sprite sheet | [`animator_example.py`](examples/animator_example.py) |
+| Move a player and collect things | [`sprite_example.py`](examples/sprite_example.py) |
+| Have a world bigger than the screen | [`camera_example.py`](examples/camera_example.py) |
+| Load a level made in Tiled (with zoom) | [`tiled_example.py`](examples/tiled_example.py) |
+| Find my controller's button numbers | [`joystick_debug.py`](examples/joystick_debug.py) |
+| Move with a game controller | [`joystick_move.py`](examples/joystick_move.py) |
+
 ## How every object works
 
 All objects follow the same rules, so once you know one you know them all:
@@ -147,6 +166,88 @@ and move, hide and update with it.
 | `World` | Puts a map, camera and sprites together |
 | `JoystickManager` | Reads any game controller (see below) |
 
+## Quick reference
+
+### Label
+```python
+score_label = Label(20, 20, "Score: 0", fg=(255, 220, 0), font_size=36)
+score_label.config(text=f"Score: {score}")     # change it later
+score_label.draw(screen)
+```
+
+### Button
+```python
+play = Button(100, 100, 200, 60, "Play", command=start_game,
+              bg=(250, 200, 60), hover_bg=(255, 230, 120), border_radius=15)
+play.handle_event(event)        # in handle_inputs()
+play.draw(screen)
+```
+
+### TextBox
+```python
+name_box = TextBox(50, 100, max_chars=15, label="Name:", on_enter=say_hello)
+name_box.handle_event(event)    # in handle_inputs()
+name_box.update(tick)           # cursor blink
+name = name_box.get()
+```
+
+### Frame and Popup
+```python
+menu = Frame(250, 120, 300, 300)
+menu.add(Label(10, 10, "Menu"), Button(10, 60, 200, 50, "Start", command=start_game))
+menu.toggle_visibility()        # hides / shows everything inside
+
+game_over = Popup(400, 300, 320, 200, "Game Over", center=True)
+game_over.show()
+```
+Call `handle_event`, `update` and `draw` on the Frame or Popup only - it passes
+them on to everything inside. Draw popups last so they are on top.
+
+### Animator
+```python
+animator = Animator("player_sheet.png", from_sheet=True,
+                    tile_width=32, tile_height=32, rows=3, cols=4, scale=2)
+animator.add_animation("walk", [(1, 0), (1, 1), (1, 2), (1, 3)])   # (row, col)
+animator.play("walk")
+animator.play_once("jump")
+image = animator.update(tick, flip_x=facing_left)   # the frame to draw
+```
+
+### SpriteObject
+```python
+player = SpriteObject(100, 100, image="player.png")      # or animator=...
+player.move(5, 0)
+if player.collides_with(coin): ...
+player.update(tick)
+player.draw(screen)             # or player.draw(screen, camera)
+```
+
+### Camera and ZoomCamera
+```python
+camera = Camera(world_width, world_height, (WIDTH, HEIGHT))
+camera.follow(player)
+camera.update(tick)
+player.draw(screen, camera)     # world things are drawn through the camera
+
+zoom_camera = ZoomCamera(camera, (WIDTH, HEIGHT), zoom=2)   # smooth=True to blur
+zoom_camera.draw_world(world, screen)
+```
+
+### TiledMap and World
+```python
+level = TiledMap("level1.tmx")
+player_start = level.spawn_points["player_spawn"]
+walls = [obj["rect"] for obj in level.collision_objects]
+
+world = World(level, camera)
+world.add_sprite(player)
+world.update(tick)
+world.draw(screen)              # background, sprites, then foreground
+```
+In Tiled, give objects a **Class** of `collision` or `trigger`, name spawn
+points with "spawn" in the name, and put a layer named "Foreground" in front
+of the player.
+
 ### Game controllers
 
 Every controller numbers its buttons differently, so:
@@ -171,9 +272,15 @@ speed_x = pad.get_axis("move_x")         # -1.0 to 1.0
 
 See [`examples/joystick_move.py`](examples/joystick_move.py) for a full game.
 
+## Example art
+
+The images and map in `examples/assets/` were drawn for this library and can
+be used freely in student games.
+
 ## Testing
 
-Run the files in `tests/` to check the library works. It prints
+Run the files in `tests/` to check the library works.
+`tests/test_examples.py` runs every example for a couple of seconds. It prints
 `ALL TESTS PASS` if everything is OK.
 
 ## Opening in Visual Studio
