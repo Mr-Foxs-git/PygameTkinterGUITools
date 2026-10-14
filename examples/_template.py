@@ -35,8 +35,8 @@ def init_pygame():
     clock = pg.time.Clock()
 
     # >>> Create objects here (after pg.init)
-    title = Label("My game", x=20, y=20, font_size=40)
-    hello_button = Button(20, 80, 150, 50, "Hello", action=say_hello)
+    title = Label(20, 20, "My game", font_size=40)
+    hello_button = Button(20, 80, 150, 50, "Hello", command=say_hello)
 
 
 def handle_inputs():

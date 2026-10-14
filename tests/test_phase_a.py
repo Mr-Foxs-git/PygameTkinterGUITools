@@ -32,26 +32,26 @@ def check(name, condition):
 
 # A1 Button clicks at its real position
 hits = []
-b = g.Button(100, 100, 50, 30, "Hi", action=lambda: hits.append("b"))
+b = g.Button(100, 100, 50, 30, "Hi", command=lambda: hits.append("b"))
 b.handle_event(click((120, 110)))
 b.handle_event(click((10, 10)))
 check("A1 Button clicks where it is drawn", hits == ["b"])
 
 hits.clear()
-bc = g.Button(100, 100, 50, 30, "C", center=True, action=lambda: hits.append("c"))
+bc = g.Button(100, 100, 50, 30, "C", center=True, command=lambda: hits.append("c"))
 bc.handle_event(click((100, 100)))
 check("A1 Centred Button clicks", hits == ["c"])
 
-# A4 Frame alternative spellings
-f = g.Frame(50, 50, 200, 150, bg=(1, 2, 3), border_colour=(4, 5, 6), border=5)
-check("A4 Frame bg / border_colour / border work",
-      (f.background, f.border_color, f.border_width) == ((1, 2, 3), (4, 5, 6), 5))
+# A4 Frame options and colour spellings
+f = g.Frame(50, 50, 200, 150, bg=(1, 2, 3), border_colour=(4, 5, 6), border_width=5)
+check("A4 Frame bg / border_colour / border_width work",
+      (f.bg, f.border_color, f.border_width) == ((1, 2, 3), (4, 5, 6), 5))
 f2 = g.Frame(0, 0, 10, 10)
-check("A4 Frame defaults still work", (f2.background, f2.border_width) == ((60, 60, 60), 2))
+check("A4 Frame defaults", (f2.bg, f2.border_width) == ((60, 60, 60), 2))
 
 # A5 Button inside Frame (frame 50 + pad 10 + button 10 = 70)
 hits.clear()
-f.add(g.Button(10, 10, 40, 20, "x", action=lambda: hits.append("f")))
+f.add(g.Button(10, 10, 40, 20, "x", command=lambda: hits.append("f")))
 f.draw(screen)
 f.handle_event(click((75, 75)))
 check("A5 Button inside Frame clicks in the right place", hits == ["f"])
@@ -94,10 +94,10 @@ check("A10 SpriteObject with no image", g.SpriteObject(5, 5).rect.size == (32, 3
 # A11 Popup children below title, close button, offset
 hits.clear()
 p = g.Popup(100, 50, 200, 150)
-p.add(g.Button(0, 0, 50, 20, "ok", action=lambda: hits.append("p")))
+p.add(g.Button(0, 0, 50, 20, "ok", command=lambda: hits.append("p")))
 p.show()
 p.draw(screen)
-p.handle_event(click((105, 95)))                # 50 + 40 title bar + 5
+p.handle_event(click((115, 95)))                # x: 100 + 10 pad, y: 50 + 40 title bar
 check("A11 Popup child below title bar clicks", hits == ["p"])
 p.handle_event(click((275, 65)))                # close button "X"
 check("A11 Popup close button", not p.visible)

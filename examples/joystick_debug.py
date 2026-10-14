@@ -46,7 +46,7 @@ def handle_inputs():
 def update(tick):
     """Move, animate and check things."""
     # >>> Objects with update go here
-    pad.update()
+    pad.update(tick)
 
 
 def draw_game():

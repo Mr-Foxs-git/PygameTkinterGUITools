@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>f455a13a-f7b3-42d7-99ec-a801e987b2df</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>examples\joystick_move.py</StartupFile>
+    <StartupFile>tests\test_phase_b.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -27,6 +27,7 @@
     <Compile Include="examples\joystick_move.py" />
     <Compile Include="tests\test_phase_a.py" />
     <Compile Include="tests\test_joystick.py" />
+    <Compile Include="tests\test_phase_b.py" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="examples\" />

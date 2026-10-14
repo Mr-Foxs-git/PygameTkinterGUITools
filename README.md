@@ -17,6 +17,8 @@ maps made in [Tiled](https://www.mapeditor.org/).
 
 2. Copy `PygameTkinterGUITools.py` into the same folder as your game.
 
+   `pytmx` is only needed if you use `TiledMap`.
+
 3. Import it in your game:
 
    ```python
@@ -50,8 +52,8 @@ def init_pygame():
     clock = pg.time.Clock()
 
     # >>> Create objects here (after pg.init)
-    title = Label("My game", x=20, y=20, font_size=40)
-    hello_button = Button(20, 80, 150, 50, "Hello", action=say_hello)
+    title = Label(20, 20, "My game", font_size=40)
+    hello_button = Button(20, 80, 150, 50, "Hello", command=say_hello)
 
 
 def handle_inputs():
@@ -87,6 +89,39 @@ while True:
     draw_game()
 ```
 
+## How every object works
+
+All objects follow the same rules, so once you know one you know them all:
+
+| Where in your game | What to call |
+|---|---|
+| `init_pygame()` | create it, e.g. `Button(x, y, width, height, text, command=...)` |
+| `handle_inputs()` | `obj.handle_event(event)` |
+| `update(tick)` | `obj.update(tick)` |
+| `draw_game()` | `obj.draw(screen)` |
+
+GUI widgets use tkinter option names:
+
+| Option | Meaning |
+|---|---|
+| `text` | the words shown |
+| `fg` | text colour |
+| `bg` | background colour |
+| `hover_bg` | button colour when the mouse is over it |
+| `command` | function to run (Button). `on_enter` for TextBox |
+| `font_name`, `font_size` | the font |
+| `border_color`, `border_width` | the border (`border_colour` also works) |
+| `center=True` | (x, y) is the centre instead of the top-left |
+
+Change options while the game runs with `config()`, like tkinter:
+
+```python
+score_label.config(text=f"Score: {score}")
+```
+
+Widgets put in a `Frame` or `Popup` are positioned from its inside corner
+and move, hide and update with it.
+
 ## What's in the library
 
 ### GUI widgets (tkinter style)
@@ -95,9 +130,9 @@ while True:
 |---|---|
 | `Frame` | A box that holds other widgets and draws them together |
 | `Label` | Displays text |
-| `Button` | A clickable button that runs an `action` function |
-| `TextBox` | A box the player can type into |
-| `Popup` | A pop-up window that can hold other widgets |
+| `Button` | A clickable button that runs a `command` function |
+| `TextBox` | A box the player can type into (like tkinter `Entry`) |
+| `Popup` | A pop-up window with a title and close button |
 | `draw_text()` | Quickly draw text on the screen |
 
 ### Game helpers
@@ -106,7 +141,7 @@ while True:
 |---|---|
 | `SpriteObject` | A basic game object with an image or animation |
 | `Animator` | Plays animations from image files or a sprite sheet |
-| `Camera` / `ZoomCamera` | Follows a target and scrolls (and zooms) the world |
+| `Camera` / `ZoomCamera` | Follows a target and scrolls (and zooms) the world. Zoom is crisp for pixel art; use `smooth=True` for smooth scaling |
 | `TiledMap` | Loads a `.tmx` map made in Tiled |
 | `Tile` / `AnimatedTile` | Map tiles (static or animated) |
 | `World` | Puts a map, camera and sprites together |
@@ -128,7 +163,7 @@ pad.bind_hat("dpad", 0)
 
 pad.handle_event(event)                  # in handle_inputs()
 
-pad.update()                             # at the start of update(tick)
+pad.update(tick)                         # at the start of update(tick)
 if pad.was_pressed("jump"):
     ...
 speed_x = pad.get_axis("move_x")         # -1.0 to 1.0
@@ -138,7 +173,7 @@ See [`examples/joystick_move.py`](examples/joystick_move.py) for a full game.
 
 ## Testing
 
-Run `tests/test_phase_a.py` and `tests/test_joystick.py` to check the library works. It prints
+Run the files in `tests/` to check the library works. It prints
 `ALL TESTS PASS` if everything is OK.
 
 ## Opening in Visual Studio

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<map version="1.10" orientation="orthogonal" renderorder="right-down" width="2" height="2" tilewidth="16" tileheight="16" infinite="0" nextlayerid="3" nextobjectid="4">
+<map version="1.10" orientation="orthogonal" renderorder="right-down" width="2" height="2" tilewidth="16" tileheight="16" infinite="0" nextlayerid="3" nextobjectid="5">
  <tileset firstgid="1" name="test" tilewidth="16" tileheight="16" tilecount="2" columns="2">
   <image source="test_tiles.png" width="32" height="16"/>
   <tile id="0">
@@ -21,5 +21,6 @@
   <object id="3" name="path" x="4" y="4">
    <polyline points="0,0 16,16"/>
   </object>
+  <object id="4" name="door" class="trigger" x="16" y="0" width="16" height="16"/>
  </objectgroup>
 </map>

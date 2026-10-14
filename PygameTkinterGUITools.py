@@ -1,179 +1,668 @@
+"""
+PygameTkinterGUITools
+=====================
+Helper objects for making games and GUIs in pygame.
+
+GUI widgets work like tkinter: Label, Button, TextBox, Frame, Popup.
+Game helpers: Animator, SpriteObject, Camera, ZoomCamera, TiledMap, World,
+JoystickManager.
+
+Every object uses the same methods, so they all go in the same place in
+your game loop:
+    obj.handle_event(event)   -> in handle_inputs()
+    obj.update(tick)          -> in update(tick)
+    obj.draw(screen)          -> in draw_game()
+
+Option names follow tkinter:
+    text, fg (text colour), bg (background colour), command (function to run),
+    font_name, font_size, border_color, border_width
+Colour options use the US spelling "color" but "colour" also works,
+e.g. border_color= or border_colour=.
+"""
 import pygame as pg
-from typing import List, Tuple, Optional, Callable
-from pytmx.util_pygame import load_pygame
+
+# Some common colours
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+
 
 # ================================
-# Base Frame Class
+# Helper functions
 # ================================
 
-class Frame:
-    def __init__(
-        self,
-        x: int,
-        y: int,
-        width: int,
-        height: int,
-        background: Optional[Tuple[int, int, int]] = None,
-        bg: Optional[Tuple[int, int, int]] = None,
-        border_color: Optional[Tuple[int, int, int]] = None,
-        border_colour: Optional[Tuple[int, int, int]] = None,
-        border_width: Optional[int] = None,
-        border: Optional[int] = None,
-        visible: bool = True,
-        pad_x:int = 10,
-        pad_y:int = 10
-    ):
-        """
-        A container for visual elements (similar to a Tkinter Frame).
-        """
-        self.rect = pg.Rect(x, y, width, height)
-        self.pad_x = pad_x
-        self.pad_y = pad_y
+_font_cache = {}
 
-        # Either spelling can be used (e.g. bg= or background=).
-        # If neither is given, use the default value.
-        if background is not None:
-            self.background = background
-        elif bg is not None:
-            self.background = bg
-        else:
-            self.background = (60, 60, 60)
 
-        if border_color is not None:
-            self.border_color = border_color
-        elif border_colour is not None:
-            self.border_color = border_colour
-        else:
-            self.border_color = (200, 200, 200)
+def get_font(font_name=None, font_size=24):
+    """
+    Return a pygame font. Fonts are made once and then reused,
+    because making a new font every frame is slow.
+    """
+    if not pg.font.get_init():
+        pg.font.init()          # works even if pg.init() was forgotten
+    key = (font_name, font_size)
+    if key not in _font_cache:
+        _font_cache[key] = pg.font.SysFont(font_name, font_size)
+    return _font_cache[key]
 
-        if border_width is not None:
-            self.border_width = border_width
-        elif border is not None:
-            self.border_width = border
-        else:
-            self.border_width = 2
 
-        self.children: List[object] = []
+def _pick(*values):
+    """Return the first value that is not None (used for color / colour)."""
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def draw_text(screen, text, x, y, fg=WHITE, font_size=24, font_name=None,
+              center=False):
+    """
+    Draw text on the screen in one line of code.
+
+    Parameters:
+        screen    - the pygame Surface to draw on
+        text      - the words to show (string)
+        x, y      - position (top-left, or the centre if center=True)
+        fg        - text colour, e.g. (255, 255, 255)
+        font_size - size of the text (int)
+        font_name - optional font name, e.g. "Arial"
+        center    - if True, the text is centred on (x, y)
+    """
+    surface = get_font(font_name, font_size).render(str(text), True, fg)
+    rect = surface.get_rect()
+    if center:
+        rect.center = (x, y)
+    else:
+        rect.topleft = (x, y)
+    screen.blit(surface, rect)
+
+
+# ================================
+# Widget base class
+# ================================
+
+class Widget:
+    """
+    The base for every GUI object. You don't make a Widget yourself -
+    Label, Button, TextBox, Frame and Popup are all built on it, so they
+    all share these methods:
+
+        draw(screen, offset=(0, 0))          draw it
+        handle_event(event, offset=(0, 0))   react to mouse / keys
+        update(tick)                         animate it
+        config(option=value, ...)            change options (like tkinter)
+        show(), hide(), toggle_visibility()
+
+    offset is added to the position. Frames and Popups use it to move
+    their children; you normally leave it out.
+    """
+
+    # Other names allowed in config(), e.g. "border_colour" -> "border_color"
+    _aliases = {}
+
+    def __init__(self, x, y, width=0, height=0, center=False, visible=True):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.center = center
         self.visible = visible
 
-    def add(self, element):
-        """Add a visual element (Label, Button, etc.) to this Frame."""
-        self.children.append(element)
+    @property
+    def rect(self):
+        """The widget's rectangle (without any offset)."""
+        return self.get_rect()
 
-    def _child_offset(self, offset):
-        """Where the children's (0, 0) is on screen: frame position + padding."""
-        ox, oy = offset
-        return (ox + self.rect.x + self.pad_x, oy + self.rect.y + self.pad_y)
+    def get_rect(self, offset=(0, 0)):
+        """The widget's rectangle on screen, after adding offset."""
+        r = pg.Rect(0, 0, self.width, self.height)
+        position = (self.x + offset[0], self.y + offset[1])
+        if self.center:
+            r.center = position
+        else:
+            r.topleft = position
+        return r
 
-    def draw(self, surface, offset=(0, 0)):
-        if not self.visible:
-            return
+    def show(self):
+        self.visible = True
 
-        ox, oy = offset
-        my_off = self._child_offset(offset)
-
-        # Draw frame background
-        if self.background:
-            pg.draw.rect(surface, self.background,
-                (self.rect.x + ox, self.rect.y + oy, self.rect.width, self.rect.height))
-
-        # Draw border
-        if self.border_width > 0:
-            pg.draw.rect(surface, self.border_color,
-                (self.rect.x + ox, self.rect.y + oy, self.rect.width, self.rect.height),
-                self.border_width)
-
-        # Draw children with updated offset
-        for child in self.children:
-            child.draw(surface, my_off)
-
-    def handle_event(self, event, offset=(0,0)):
-        if not self.visible:
-            return
-
-        # Use the same offset as draw() so clicks line up with what is drawn
-        my_off = self._child_offset(offset)
-
-        # Send event to children
-        for child in self.children:
-            if hasattr(child, "handle_event"):
-                child.handle_event(event, my_off)
-
-    def update(self, tick):
-        """Pass the tick on to children that animate (e.g. TextBox cursor)."""
-        if not self.visible:
-            return
-        for child in self.children:
-            if hasattr(child, "update"):
-                child.update(tick)
+    def hide(self):
+        self.visible = False
 
     def toggle_visibility(self):
-        """Show or hide the frame."""
         self.visible = not self.visible
+
+    def config(self, **options):
+        """
+        Change options after the widget is made, like tkinter.
+        Example: score_label.config(text="Score: 10", fg=(255, 0, 0))
+        """
+        for name, value in options.items():
+            name = self._aliases.get(name, name)
+            if not hasattr(self, name):
+                raise ValueError(f"{type(self).__name__} has no option '{name}'")
+            setattr(self, name, value)
+        self._refresh()
+
+    configure = config      # tkinter has both names
+
+    def _refresh(self):
+        """Recalculate sizes after config(). Widgets override this."""
+        pass
+
+    def draw(self, screen, offset=(0, 0)):
+        pass
+
+    def handle_event(self, event, offset=(0, 0)):
+        pass
+
+    def update(self, tick):
+        pass
+
 
 # ================================
 # Label Class
 # ================================
 
-class Label:
-    def __init__(
-        self,
-        text: str,
-        x: int=10,
-        y: int=10,
-        font_size: int = 24,
-        colour: Tuple[int, int, int] = (255, 255, 255),
-        fontfamily: Optional[str] = None,
-        center: bool = False,
-    ):
-        """
-        Simple text label that can be added to a Frame.
-        """
+class Label(Widget):
+    """
+    Shows text on the screen (like tkinter's Label).
+
+    Parameters:
+        x, y      - position (top-left, or centre if center=True)
+        text      - the words to show
+        fg        - text colour
+        bg        - background colour behind the text (None = no background)
+        font_name - optional font name, e.g. "Arial"
+        font_size - size of the text
+        center    - if True, (x, y) is the centre of the label
+        visible   - False to start hidden
+
+    Example:
+        score = Label(20, 20, "Score: 0", fg=(255, 255, 0))
+        score.config(text="Score: 10")
+    """
+
+    def __init__(self, x, y, text="", fg=WHITE, bg=None,
+                 font_name=None, font_size=24, center=False, visible=True):
+        super().__init__(x, y, center=center, visible=visible)
         self.text = text
-        self.x = x
-        self.y = y
-        self.font = pg.font.SysFont(fontfamily, font_size)
-        self.colour = colour
-        self.center = center
+        self.fg = fg
+        self.bg = bg
+        self.font_name = font_name
+        self.font_size = font_size
+        self._refresh()
 
-    def draw(self, screen: pg.Surface, offset: Tuple[int, int] = (0, 0)):
-        text_surface = self.font.render(self.text, True, self.colour)
-        rect = text_surface.get_rect()
+    def _refresh(self):
+        self.font = get_font(self.font_name, self.font_size)
+        self.width, self.height = self.font.size(str(self.text))
 
-        if self.center:
-            rect.center = (self.x + offset[0], self.y + offset[1])
-        else:
-            rect.topleft = (self.x + offset[0], self.y + offset[1])
+    def draw(self, screen, offset=(0, 0)):
+        if not self.visible:
+            return
+        self._refresh()                      # text may have been changed directly
+        r = self.get_rect(offset)
+        if self.bg is not None:
+            pg.draw.rect(screen, self.bg, r)
+        screen.blit(self.font.render(str(self.text), True, self.fg), r)
 
-        screen.blit(text_surface, rect)
 
-    def handle_event(self, event, offset=(0,0)):
-        pass
-    
-def draw_text(screen, text: str, x: int, y: int, fontsize: int,
-              colour: tuple, fontfamily: str = None, center: bool = False):
+# ================================
+# Button Class
+# ================================
+
+class Button(Widget):
     """
-        Draw Text to the 
-        Parameters:
-        screen - pygame.Surface object to draw on (object)
-        text - string of text to display (string)
-        fontsize - size of font (int)
-        colour - RGB tuple for text colour (Red (0-255), Green (0-255), Blue (0-255))
-        fontfamily - optional font name (e.g. "Arial")
-        center - if True, the text is centred on (x,y) (boolean)
+    A clickable button (like tkinter's Button).
+
+    Parameters:
+        x, y, width, height - position and size
+        text          - the words on the button
+        command       - function to run when clicked (no brackets!)
+        fg            - text colour
+        bg            - button colour
+        hover_bg      - button colour when the mouse is over it
+        font_name, font_size
+        border_color  - border colour (border_colour also works)
+        border_width  - border thickness (0 = no border)
+        border_radius - roundness of the corners
+        shadow        - True to draw a shadow
+        shadow_offset - (x, y) distance of the shadow
+        shadow_color  - shadow colour, can include transparency (R, G, B, A)
+        center        - if True, (x, y) is the centre of the button
+        visible       - False to start hidden
+
+    Example:
+        def start_game():
+            print("Starting!")
+        start = Button(100, 100, 150, 50, "Start", command=start_game)
     """
 
-    
-    font = pg.font.SysFont(fontfamily, fontsize)
-    text_surface = font.render(text, True, colour)
-    text_rect = text_surface.get_rect()
-    
-    if center:
-        text_rect.center = (x, y)
-    else:
-        text_rect.topleft = (x, y)
-    
-    screen.blit(text_surface, text_rect)
+    _aliases = {"border_colour": "border_color", "shadow_colour": "shadow_color"}
+
+    def __init__(self, x, y, width, height, text="", command=None,
+                 fg=BLACK, bg=(100, 150, 255), hover_bg=(150, 200, 255),
+                 font_name=None, font_size=30,
+                 border_color=None, border_colour=None, border_width=0,
+                 border_radius=0,
+                 shadow=False, shadow_offset=(3, 3),
+                 shadow_color=None, shadow_colour=None,
+                 center=False, visible=True):
+        super().__init__(x, y, width, height, center, visible)
+        self.text = text
+        self.command = command
+        self.fg = fg
+        self.bg = bg
+        self.hover_bg = hover_bg
+        self.font_name = font_name
+        self.font_size = font_size
+        self.border_color = _pick(border_color, border_colour)
+        self.border_width = border_width
+        self.border_radius = border_radius
+        self.shadow = shadow
+        self.shadow_offset = shadow_offset
+        self.shadow_color = _pick(shadow_color, shadow_colour, (0, 0, 0, 100))
+        self._refresh()
+
+    def _refresh(self):
+        self.font = get_font(self.font_name, self.font_size)
+
+    def is_hovered(self, offset=(0, 0)):
+        """True if the mouse is over the button."""
+        return self.get_rect(offset).collidepoint(pg.mouse.get_pos())
+
+    def draw(self, screen, offset=(0, 0)):
+        if not self.visible:
+            return
+        r = self.get_rect(offset)
+
+        # Shadow
+        if self.shadow:
+            shadow_surface = pg.Surface(r.size, pg.SRCALPHA)
+            pg.draw.rect(shadow_surface, self.shadow_color,
+                         shadow_surface.get_rect(), border_radius=self.border_radius)
+            screen.blit(shadow_surface, r.move(self.shadow_offset))
+
+        # Button
+        colour = self.hover_bg if self.is_hovered(offset) else self.bg
+        pg.draw.rect(screen, colour, r, border_radius=self.border_radius)
+
+        # Border
+        if self.border_color and self.border_width > 0:
+            pg.draw.rect(screen, self.border_color, r,
+                         width=self.border_width, border_radius=self.border_radius)
+
+        # Text
+        text_surface = self.font.render(str(self.text), True, self.fg)
+        screen.blit(text_surface, text_surface.get_rect(center=r.center))
+
+    def handle_event(self, event, offset=(0, 0)):
+        if not self.visible:
+            return
+        if event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
+            if self.get_rect(offset).collidepoint(event.pos) and self.command:
+                self.command()
+
+
+# ================================
+# TextBox Class
+# ================================
+
+class TextBox(Widget):
+    """
+    A box the player can type into (like tkinter's Entry).
+    Click it to start typing. Supports arrow keys, Home, End,
+    Backspace and Delete.
+
+    Parameters:
+        x, y           - position (top-left, or centre if center=True)
+        max_chars      - most letters allowed (also sets the box width)
+        text           - starting text
+        fg             - text colour
+        bg             - box colour
+        border_color   - border colour (border_colour also works)
+        font_name, font_size
+        padding        - space inside the box around the text
+        label          - optional words shown next to the box, e.g. "Name:"
+        label_fg       - label colour
+        label_gap      - space between label and box
+        label_position - "left", "right", "top" or "bottom"
+        on_enter       - function to run when Enter is pressed
+        center         - if True, (x, y) is the centre of box + label
+        visible        - False to start hidden
+
+    Example:
+        def submit():
+            print("Hello", name_box.get())
+        name_box = TextBox(100, 100, label="Name:", on_enter=submit)
+    """
+
+    _aliases = {"border_colour": "border_color"}
+
+    def __init__(self, x, y, max_chars=20, text="",
+                 fg=BLACK, bg=(230, 230, 230),
+                 border_color=None, border_colour=None,
+                 font_name=None, font_size=24, padding=6,
+                 label=None, label_fg=WHITE, label_gap=10, label_position="left",
+                 on_enter=None, center=False, visible=True):
+        super().__init__(x, y, center=center, visible=visible)
+        self.max_chars = max_chars
+        self.fg = fg
+        self.bg = bg
+        self.border_color = _pick(border_color, border_colour, (100, 100, 100))
+        self.font_name = font_name
+        self.font_size = font_size
+        self.padding = padding
+        self.label = label
+        self.label_fg = label_fg
+        self.label_gap = label_gap
+        self.label_position = label_position.lower()
+        self.on_enter = on_enter
+
+        self.text = str(text)[:max_chars]
+        self.cursor_pos = len(self.text)
+        self.cursor_visible = True
+        self.cursor_timer = 0
+        self.active = False
+        self._refresh()
+
+    def _refresh(self):
+        """Work out where the box and label go (relative to the top-left)."""
+        self.font = get_font(self.font_name, self.font_size)
+        self.text = str(self.text)[:self.max_chars]
+        self.cursor_pos = min(self.cursor_pos, len(self.text))
+
+        box_w = self.max_chars * self.font.size("M")[0] + self.padding * 2
+        box_h = self.font.get_height() + self.padding * 2
+
+        if not self.label:
+            self.box_rect = pg.Rect(0, 0, box_w, box_h)
+            self.label_rect = None
+            self.width, self.height = box_w, box_h
+            return
+
+        label_w, label_h = self.font.size(self.label)
+        gap = self.label_gap
+        if self.label_position in ("left", "right"):
+            self.width = label_w + gap + box_w
+            self.height = max(box_h, label_h)
+            box_y = (self.height - box_h) // 2
+            label_y = (self.height - label_h) // 2
+            if self.label_position == "left":
+                self.label_rect = pg.Rect(0, label_y, label_w, label_h)
+                self.box_rect = pg.Rect(label_w + gap, box_y, box_w, box_h)
+            else:
+                self.box_rect = pg.Rect(0, box_y, box_w, box_h)
+                self.label_rect = pg.Rect(box_w + gap, label_y, label_w, label_h)
+        else:   # "top" or "bottom"
+            self.width = max(box_w, label_w)
+            self.height = label_h + gap + box_h
+            box_x = (self.width - box_w) // 2
+            label_x = (self.width - label_w) // 2
+            if self.label_position == "top":
+                self.label_rect = pg.Rect(label_x, 0, label_w, label_h)
+                self.box_rect = pg.Rect(box_x, label_h + gap, box_w, box_h)
+            else:
+                self.box_rect = pg.Rect(box_x, 0, box_w, box_h)
+                self.label_rect = pg.Rect(label_x, box_h + gap, label_w, label_h)
+
+    # ---- text methods (get / set like tkinter) ----
+    def get(self):
+        """Return the text typed in the box."""
+        return self.text
+
+    get_text = get
+
+    def set_text(self, new_text):
+        """Replace the text in the box."""
+        self.text = str(new_text)[:self.max_chars]
+        self.cursor_pos = len(self.text)
+
+    def clear(self):
+        """Empty the box."""
+        self.set_text("")
+
+    def insert_text(self, characters):
+        """Type characters at the cursor (stops at max_chars)."""
+        for ch in characters:
+            if len(self.text) >= self.max_chars:
+                break
+            self.text = self.text[:self.cursor_pos] + ch + self.text[self.cursor_pos:]
+            self.cursor_pos += 1
+
+    # ---- game loop methods ----
+    def handle_event(self, event, offset=(0, 0)):
+        if not self.visible:
+            return
+        box_on_screen = self.box_rect.move(self.get_rect(offset).topleft)
+
+        if event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
+            self.active = box_on_screen.collidepoint(event.pos)
+
+        if not self.active or event.type != pg.KEYDOWN:
+            return
+
+        if event.key in (pg.K_RETURN, pg.K_KP_ENTER):
+            if self.on_enter:
+                self.on_enter()
+        elif event.key == pg.K_BACKSPACE:
+            if self.cursor_pos > 0:
+                self.text = self.text[:self.cursor_pos - 1] + self.text[self.cursor_pos:]
+                self.cursor_pos -= 1
+        elif event.key == pg.K_DELETE:
+            self.text = self.text[:self.cursor_pos] + self.text[self.cursor_pos + 1:]
+        elif event.key == pg.K_LEFT:
+            self.cursor_pos = max(0, self.cursor_pos - 1)
+        elif event.key == pg.K_RIGHT:
+            self.cursor_pos = min(len(self.text), self.cursor_pos + 1)
+        elif event.key == pg.K_HOME:
+            self.cursor_pos = 0
+        elif event.key == pg.K_END:
+            self.cursor_pos = len(self.text)
+        elif event.unicode and event.unicode.isprintable():
+            self.insert_text(event.unicode)
+
+    def update(self, tick):
+        """Make the cursor blink."""
+        self.cursor_timer += tick
+        if self.cursor_timer >= 400:
+            self.cursor_timer = 0
+            self.cursor_visible = not self.cursor_visible
+
+    def draw(self, screen, offset=(0, 0)):
+        if not self.visible:
+            return
+        top_left = self.get_rect(offset).topleft
+
+        # Label
+        if self.label_rect:
+            screen.blit(self.font.render(self.label, True, self.label_fg),
+                        self.label_rect.move(top_left))
+
+        # Box
+        box = self.box_rect.move(top_left)
+        pg.draw.rect(screen, self.bg, box)
+        pg.draw.rect(screen, self.border_color, box, 2)
+
+        # Text
+        text_surface = self.font.render(self.text, True, self.fg)
+        text_x = box.x + self.padding
+        text_y = box.y + (box.height - text_surface.get_height()) // 2
+        screen.blit(text_surface, (text_x, text_y))
+
+        # Cursor
+        if self.active and self.cursor_visible:
+            cursor_x = text_x + self.font.size(self.text[:self.cursor_pos])[0]
+            pg.draw.line(screen, self.fg, (cursor_x, text_y),
+                         (cursor_x, text_y + self.font.get_height()), 2)
+
+
+# ================================
+# Container base class (Frame and Popup)
+# ================================
+
+class Container(Widget):
+    """
+    The base for Frame and Popup: a box that holds other widgets.
+    Children's x, y are measured from the inside top-left corner
+    (after the padding), and they move when the container moves.
+    """
+
+    _aliases = {"border_colour": "border_color"}
+
+    def __init__(self, x, y, width, height, bg, border_color, border_width,
+                 pad_x, pad_y, center, visible):
+        super().__init__(x, y, width, height, center, visible)
+        self.bg = bg
+        self.border_color = border_color
+        self.border_width = border_width
+        self.pad_x = pad_x
+        self.pad_y = pad_y
+        self.children = []
+        self.top_space = 0          # extra space at the top (Popup title bar)
+
+    def add(self, *widgets):
+        """Add one or more widgets, e.g. frame.add(label, button)."""
+        for widget in widgets:
+            self.children.append(widget)
+
+    def child_offset(self, offset=(0, 0)):
+        """Where the children's (0, 0) is on screen."""
+        r = self.get_rect(offset)
+        return (r.x + self.pad_x, r.y + self.pad_y + self.top_space)
+
+    def draw_children(self, screen, offset=(0, 0)):
+        inside = self.child_offset(offset)
+        for child in self.children:
+            child.draw(screen, inside)
+
+    def handle_event(self, event, offset=(0, 0)):
+        if not self.visible:
+            return
+        inside = self.child_offset(offset)
+        for child in self.children:
+            child.handle_event(event, inside)
+
+    def update(self, tick):
+        if not self.visible:
+            return
+        for child in self.children:
+            child.update(tick)
+
+
+# ================================
+# Frame Class
+# ================================
+
+class Frame(Container):
+    """
+    A box that holds other widgets (like tkinter's Frame).
+    Widgets added to a Frame are positioned from the Frame's inside corner,
+    and are drawn, updated and hidden together with it.
+
+    Parameters:
+        x, y, width, height - position and size
+        bg            - background colour (None = see-through)
+        border_color  - border colour (border_colour also works)
+        border_width  - border thickness (0 = no border)
+        pad_x, pad_y  - space between the edge and the children
+        center        - if True, (x, y) is the centre of the frame
+        visible       - False to start hidden
+
+    Example:
+        menu = Frame(50, 50, 300, 200)
+        menu.add(Label(0, 0, "Menu"), Button(0, 40, 120, 40, "Play"))
+    """
+
+    def __init__(self, x, y, width, height, bg=(60, 60, 60),
+                 border_color=None, border_colour=None, border_width=2,
+                 pad_x=10, pad_y=10, center=False, visible=True):
+        super().__init__(x, y, width, height, bg,
+                         _pick(border_color, border_colour, (200, 200, 200)),
+                         border_width, pad_x, pad_y, center, visible)
+
+    def draw(self, screen, offset=(0, 0)):
+        if not self.visible:
+            return
+        r = self.get_rect(offset)
+        if self.bg is not None:
+            pg.draw.rect(screen, self.bg, r)
+        if self.border_width > 0 and self.border_color:
+            pg.draw.rect(screen, self.border_color, r, self.border_width)
+        self.draw_children(screen, offset)
+
+
+# ================================
+# Popup Class
+# ================================
+
+class Popup(Container):
+    """
+    A pop-up window with a title bar and a close (X) button.
+    It starts hidden: call show() to open it. Widgets added to it appear
+    below the title bar.
+
+    Parameters:
+        x, y, width, height - position and size
+        title         - words in the title bar
+        fg            - title colour
+        bg            - window colour
+        border_color  - border colour (border_colour also works)
+        border_width  - border thickness
+        dim           - if True, darken the rest of the screen when open
+        pad_x, pad_y  - space between the edge and the children
+        center        - if True, (x, y) is the centre of the popup
+        visible       - True to start open
+
+    Example:
+        message = Popup(200, 150, 300, 200, "Game Over")
+        message.add(Label(0, 0, "You win!", fg=(0, 0, 0)))
+        message.show()
+    """
+
+    TITLE_HEIGHT = 40
+
+    def __init__(self, x, y, width, height, title="Popup",
+                 fg=BLACK, bg=(240, 240, 240),
+                 border_color=None, border_colour=None, border_width=2,
+                 dim=True, pad_x=10, pad_y=0, center=False, visible=False):
+        super().__init__(x, y, width, height, bg,
+                         _pick(border_color, border_colour, BLACK),
+                         border_width, pad_x, pad_y, center, visible)
+        self.title = title
+        self.fg = fg
+        self.dim = dim
+        self.top_space = self.TITLE_HEIGHT
+        self.close_button = Button(width - 30, 10, 20, 20, "X", command=self.hide,
+                                   bg=(200, 60, 60), hover_bg=(255, 80, 80),
+                                   font_size=22)
+
+    def handle_event(self, event, offset=(0, 0)):
+        if not self.visible:
+            return
+        super().handle_event(event, offset)
+        self.close_button.handle_event(event, self.get_rect(offset).topleft)
+
+    def draw(self, screen, offset=(0, 0)):
+        if not self.visible:
+            return
+
+        # Darken everything behind the popup
+        if self.dim:
+            overlay = pg.Surface(screen.get_size(), pg.SRCALPHA)
+            overlay.fill((0, 0, 0, 120))
+            screen.blit(overlay, (0, 0))
+
+        r = self.get_rect(offset)
+        pg.draw.rect(screen, self.bg, r, border_radius=10)
+        if self.border_width > 0:
+            pg.draw.rect(screen, self.border_color, r, self.border_width,
+                         border_radius=10)
+
+        draw_text(screen, self.title, r.x + 10, r.y + 10, fg=self.fg)
+        self.draw_children(screen, offset)
+        self.close_button.draw(screen, r.topleft)
+
 
 # ================================
 # Camera Class
@@ -181,46 +670,63 @@ def draw_text(screen, text: str, x: int, y: int, fontsize: int,
 
 class Camera:
     """
-    Handles world-to-screen offset based on a target (e.g., player).
-    Supports bounds limiting and smooth following.
+    Scrolls the world so it follows a target (e.g. the player).
+
+    Parameters:
+        width, height - size of the whole world / map in pixels
+        screen_size   - (width, height) of the window
+        smooth        - how quickly it catches up each frame (0.1 = smooth,
+                        1.0 = instant)
+
+    Use camera.follow(player), call camera.update(tick) every frame, and draw
+    things at camera.apply(thing.rect).
     """
-    def __init__(self, width, height, screen_size):
+
+    def __init__(self, width, height, screen_size, smooth=0.1):
         self.width = width
         self.height = height
-        self.screen_w, self.screen_h = screen_size
+        self.screen_w, self.screen_h = screen_size   # area of the world shown
         self.offset = pg.Vector2(0, 0)
         self.target = None
-        self.smooth_factor = 0.1  # smaller = smoother follow
+        self.smooth = smooth
 
     def follow(self, target):
-        """Assign a target object with a .rect attribute."""
+        """Follow an object that has a .rect (e.g. a SpriteObject)."""
         self.target = target
 
-    def update(self):
-        """Move camera to follow the target."""
+    def update(self, tick=None):
+        """
+        Move towards the target. Pass tick so the smoothing is the same
+        speed at any frame rate.
+        """
         if not self.target:
             return
 
-        # Desired camera center
-        target_center = pg.Vector2(
-            self.target.rect.centerx - self.screen_w / 2,
-            self.target.rect.centery - self.screen_h / 2
-        )
+        # Where the camera wants to be: target in the middle of the view
+        wanted = pg.Vector2(self.target.rect.centerx - self.screen_w / 2,
+                            self.target.rect.centery - self.screen_h / 2)
 
-        # Clamp to map bounds
-        target_center.x = max(0, min(target_center.x, self.width - self.screen_w))
-        target_center.y = max(0, min(target_center.y, self.height - self.screen_h))
+        # Don't show past the edges of the map
+        wanted.x = max(0, min(wanted.x, self.width - self.screen_w))
+        wanted.y = max(0, min(wanted.y, self.height - self.screen_h))
 
-        # Smooth follow
-        self.offset += (target_center - self.offset) * self.smooth_factor
+        # Smooth follow (60 frames per second is the "normal" speed)
+        amount = self.smooth
+        if tick is not None:
+            amount = 1 - (1 - self.smooth) ** (tick / (1000 / 60))
+        self.offset += (wanted - self.offset) * min(1, amount)
 
     def apply(self, rect):
-        """Return a rect adjusted for camera offset."""
+        """Return where a world rect appears on screen."""
         return rect.move(-self.offset.x, -self.offset.y)
 
     def apply_pos(self, pos):
-        """Return a position tuple adjusted for camera offset."""
+        """Return where a world (x, y) appears on screen."""
         return (pos[0] - self.offset.x, pos[1] - self.offset.y)
+
+    def screen_to_world(self, pos):
+        """Turn a screen position (e.g. the mouse) into a world position."""
+        return (pos[0] + self.offset.x, pos[1] + self.offset.y)
 
 
 # ================================
@@ -229,54 +735,68 @@ class Camera:
 
 class ZoomCamera:
     """
-    Wraps your fox.Camera to add zooming.
-    Zoom works by rendering the world to a temp surface, then scaling it.
-    """
-    def __init__(self, base_camera, screen_size, initial_zoom=2.0):
-        self.base = base_camera
-        self.zoom = initial_zoom
-        self.screen_w, self.screen_h = screen_size
+    Adds zoom to a Camera. zoom=2.0 shows things twice as big,
+    zoom=0.5 shows twice as much of the world.
 
-        # temporary render surface (world area as seen by camera)
-        self.render = pg.Surface(screen_size, pg.SRCALPHA)
+    Parameters:
+        base_camera - the Camera to zoom
+        screen_size - (width, height) of the window
+        zoom        - starting zoom
+        smooth      - False = crisp pixels (best for pixel art),
+                      True = smooth scaling
+
+    Use zoom_camera.update(tick) and zoom_camera.draw_world(world, screen)
+    instead of the base camera's.
+    """
+
+    MIN_ZOOM = 0.3
+    MAX_ZOOM = 6.0
+
+    def __init__(self, base_camera, screen_size, zoom=2.0, smooth=False):
+        self.base = base_camera
+        self.screen_w, self.screen_h = screen_size
+        self.smooth = smooth
+        self.render = None
+        self.set_zoom(zoom)
 
     def set_zoom(self, z):
-        self.zoom = max(0.3, min(6.0, z))  # clamp zoom
+        """Change the zoom (kept between MIN_ZOOM and MAX_ZOOM)."""
+        self.zoom = max(self.MIN_ZOOM, min(self.MAX_ZOOM, z))
+        # The base camera now shows a bigger or smaller part of the world
+        self.base.screen_w = self.screen_w / self.zoom
+        self.base.screen_h = self.screen_h / self.zoom
 
-    def apply_offset(self):
-        """
-        Return the camera offset (base camera already follows player).
-        """
-        return (self.base.offset.x, self.base.offset.y)
+    def update(self, tick=None):
+        self.base.update(tick)
 
-    def update(self):
-        self.base.update()
+    def screen_to_world(self, pos):
+        """Turn a screen position (e.g. the mouse) into a world position."""
+        return self.base.screen_to_world((pos[0] / self.zoom, pos[1] / self.zoom))
 
     def draw_world(self, world, screen):
-        """
-        Draws the entire world to a temp surface, then scales it.
-        """
-        # Step 1 — draw to clean render surface
-        self.render.fill((0,0,0,0))
+        """Draw the world at the current zoom onto the screen."""
+        view_size = (max(1, int(self.base.screen_w)), max(1, int(self.base.screen_h)))
+        if self.render is None or self.render.get_size() != view_size:
+            self.render = pg.Surface(view_size, pg.SRCALPHA)
+
+        # Draw the visible part of the world, then scale it to fill the screen
+        self.render.fill((0, 0, 0, 0))
         world.draw(self.render)
-
-        # Step 2 — zoom by scaling
-        zoomed_surface = pg.transform.smoothscale(
-            self.render,
-            (int(self.screen_w * self.zoom), int(self.screen_h * self.zoom))
-        )
-
-        # Step 3 — center the zoom on screen
-        rect = zoomed_surface.get_rect(center=(self.screen_w//2, self.screen_h//2))
-
-        screen.blit(zoomed_surface, rect)
+        if self.smooth:
+            zoomed = pg.transform.smoothscale(self.render, (self.screen_w, self.screen_h))
+        else:
+            zoomed = pg.transform.scale(self.render, (self.screen_w, self.screen_h))
+        screen.blit(zoomed, (0, 0))
 
 
 
+# ================================
+# Animator Class
+# ================================
 
 class Animator:
     """
-    Handles animation from:
+    Plays animations from:
       - A list of individual images, OR
       - A sprite sheet divided into tiles.
 
@@ -285,6 +805,16 @@ class Animator:
       - Delta time frame advancement
       - Play once or looped animations
       - Flipping/inverting animations horizontally or vertically
+
+    Parameters:
+        source      - a list of image files (or Surfaces), or one sprite sheet file
+        from_sheet  - True if source is a sprite sheet
+        tile_width, tile_height - size of one frame on the sprite sheet
+        rows, cols  - how many frames down and across the sprite sheet
+        frame_rate  - frames per second
+        scale       - make every frame bigger (2 = double size)
+
+    Call animator.update(tick) every frame; it returns the image to draw.
     """
 
     def __init__(self, source, from_sheet=False,
@@ -304,6 +834,7 @@ class Animator:
         # New playback control variables
         self.playing = True
         self.loop = True
+        self.image = None
 
         if from_sheet:
             self._load_from_sheet(source, tile_width, tile_height, rows, cols)
@@ -431,10 +962,13 @@ class Animator:
         frame_list = anim["frames"]
 
         if self.playing:
-            dt = tick / 1000.0
-            self.timer += dt
-            if self.timer >= 1 / self.frame_rate:
-                self.timer = 0
+            # Timer counts whole milliseconds (decimals of seconds add up
+            # with tiny rounding errors)
+            self.timer += tick
+            frame_time = 1000 / self.frame_rate
+            # Keep the leftover time so the speed matches frame_rate exactly
+            while self.playing and self.timer >= frame_time:
+                self.timer -= frame_time
                 self.current_frame_index += 1
 
                 # Handle looping or stopping at the end
@@ -457,67 +991,75 @@ class Animator:
                 frame = pg.transform.flip(frame, total_flip_x, total_flip_y)
             self.flipped_cache[key] = frame
 
-        return self.flipped_cache[key]
+        self.image = self.flipped_cache[key]
+        return self.image
 
     def reset(self):
         """Restart the current animation."""
         self.current_frame_index = 0
         self.timer = 0
 
+
+
 # ================================
-# SpriteObject Class (Used with Animator)
+# Tile Classes (made by TiledMap)
 # ================================
 
 class Tile(pg.sprite.Sprite):
-    """Basic static tile."""
+    """One still map tile. TiledMap makes these for you."""
+
     def __init__(self, pos, image):
         super().__init__()
         self.image = image
         self.rect = self.image.get_rect(topleft=pos)
 
     def update(self, tick):
-        pass  # static tiles do nothing
+        pass    # still tiles don't change
 
-    def draw(self, surface, offset=(0, 0)):
-        ox, oy = offset
-        surface.blit(self.image, (self.rect.x - ox, self.rect.y - oy))
+    def draw(self, screen, camera=None):
+        """Draw the tile. Pass the camera if the world scrolls."""
+        r = camera.apply(self.rect) if camera else self.rect
+        screen.blit(self.image, r)
 
 
-# ================================
-# Animated Tile Class
-# ================================
-
-class AnimatedTile(pg.sprite.Sprite):
+class AnimatedTile(Tile):
     """
-    Tile that uses the Animator class to loop an animation.
-    Perfect for water, torches, lights, machinery, etc.
+    A map tile that loops an Animator (water, torches, machinery...).
+    TiledMap makes these for tiles animated in Tiled.
     """
-    def __init__(self, pos, animator: Animator, default_animation="default"):
-        super().__init__()
+
+    def __init__(self, pos, animator, default_animation="default"):
         self.animator = animator
-
-        # Start animation looping
         self.animator.play(default_animation)
         self.animator.start(loop=True)
-
-        # Initial image
-        self.image = self.animator.update(0)
-        self.rect = self.image.get_rect(topleft=pos)
+        super().__init__(pos, self.animator.update(0))
 
     def update(self, tick):
         self.image = self.animator.update(tick)
 
-    def draw(self, surface, offset=(0, 0)):
-        ox, oy = offset
-        surface.blit(self.image, (self.rect.x - ox, self.rect.y - oy))
 
 # ================================
-# TileMap Class
+# TiledMap Class
 # ================================
 
 class TiledMap:
+    """
+    Loads a map made in Tiled (a .tmx file). Needs: pip install pytmx
+
+    Tile layers go into map.background, or map.foreground if the layer's
+    name contains "foreground" (drawn in front of sprites).
+    Object layers are sorted into:
+        map.spawn_points      {"player_spawn": (x, y)}  - name contains "spawn"
+        map.collision_objects [{"rect": Rect, "properties": {...}}] - class "collision"
+        map.triggers          [{"rect", "name", "properties"}] - class "trigger"
+        map.paths             [{"points", "name", "properties"}] - polygons / polylines
+        map.custom_objects    everything else
+    """
+
     def __init__(self, filename):
+        # Imported here so the rest of the library works without pytmx
         from pytmx.util_pygame import load_pygame
+        self._object_classes = self._read_object_classes(filename)
         self.tmx = load_pygame(filename)
 
         self.tilewidth = self.tmx.tilewidth
@@ -541,6 +1083,19 @@ class TiledMap:
         self._load_object_layers()
 
     # --------------------------------------------------------------
+    @staticmethod
+    def _read_object_classes(filename):
+        """
+        Read each object's "class" straight from the .tmx file, because
+        some pytmx versions don't load it.
+        """
+        import xml.etree.ElementTree as ET
+        classes = {}
+        for element in ET.parse(filename).getroot().iter("object"):
+            if element.get("class"):
+                classes[int(element.get("id"))] = element.get("class")
+        return classes
+
     def get_objects(self):
         return list(self.tmx.objects)
 
@@ -603,7 +1158,9 @@ class TiledMap:
             props = dict(obj.properties)
 
             name = obj.name or ""
-            obj_type = (obj.type or "").lower()
+            # Older Tiled saves "type", Tiled 1.9+ saves "class"
+            obj_type = getattr(obj, "type", None) or self._object_classes.get(obj.id, "")
+            obj_type = str(obj_type).lower()
             shape = getattr(obj, "shape", None)
 
             # ------------- Spawn Points -------------
@@ -660,427 +1217,77 @@ class TiledMap:
 
 
 
-# ================================
-# Button Class
-# ================================
-
-class Button:
-    """
-    A simple, customizable button class that:
-     - Draws a rectangle and text
-     - Changes colour when hovered
-     - Supports rounded corners, borders, shadows
-     - Can be centered or positioned by top-left
-     - Works both inside and outside of frames
-    """
-
-    def __init__(self, x, y, width, height, text,
-                 colour=(100, 150, 255), hover_colour=(150, 200, 255),
-                 text_colour=(0, 0, 0), font_size=30,
-                 font_name=None, action=None,
-                 border_radius=0, border_colour=None, border_thickness=0,
-                 shadow=False, shadow_offset=(3, 3), shadow_colour=(0, 0, 0, 100),
-                 center=False):
-        # --- store logical (local) position ---
-        self.local_x = x
-        self.local_y = y
-        self.center = center
-
-        # --- visual setup ---
-        self.rect = pg.Rect(0, 0, width, height)
-        self.text = text
-        self.colour = colour
-        self.hover_colour = hover_colour
-        self.text_colour = text_colour
-        self.font = pg.font.SysFont(font_name, font_size)
-        self.action = action
-
-        # --- visual options ---
-        self.border_radius = border_radius
-        self.border_colour = border_colour
-        self.border_thickness = border_thickness
-        self.shadow = shadow
-        self.shadow_offset = shadow_offset
-        self.shadow_colour = shadow_colour
-
-    def get_rect_with_offset(self, offset=(0, 0)):
-        """Compute the button’s rect, applying offset and centering correctly."""
-        # Create a copy to avoid mutating the original rect
-        draw_rect = self.rect.copy()
-        if self.center:
-            draw_rect.center = (self.local_x + offset[0], self.local_y + offset[1])
-        else:
-            draw_rect.topleft = (self.local_x + offset[0], self.local_y + offset[1])
-        return draw_rect
-
-    def draw(self, screen, offset=(0, 0)):
-        """Draws the button, handling hover, border, and shadow effects."""
-        draw_rect = self.get_rect_with_offset(offset)
-        mouse_pos = pg.mouse.get_pos()
-        is_hovered = draw_rect.collidepoint(mouse_pos)
-        current_colour = self.hover_colour if is_hovered else self.colour
-
-        # --- Shadow ---
-        if self.shadow:
-            shadow_rect = draw_rect.move(self.shadow_offset)
-            shadow_surface = pg.Surface(draw_rect.size, pg.SRCALPHA)
-            pg.draw.rect(
-                shadow_surface,
-                self.shadow_colour,
-                shadow_surface.get_rect(),
-                border_radius=self.border_radius
-            )
-            screen.blit(shadow_surface, shadow_rect.topleft)
-
-        # --- Main Button ---
-        pg.draw.rect(screen, current_colour, draw_rect, border_radius=self.border_radius)
-
-        # --- Border ---
-        if self.border_colour and self.border_thickness > 0:
-            pg.draw.rect(
-                screen, self.border_colour, draw_rect,
-                width=self.border_thickness, border_radius=self.border_radius
-            )
-
-        # --- Text ---
-        text_surface = self.font.render(self.text, True, self.text_colour)
-        text_rect = text_surface.get_rect(center=draw_rect.center)
-        screen.blit(text_surface, text_rect)
-
-    def handle_event(self, event, offset=(0,0)):
-        if event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
-            # Use the same rectangle that draw() uses
-            if self.get_rect_with_offset(offset).collidepoint(event.pos):
-                if self.action:
-                    self.action()
 
 
 # ================================
-# Animator Class
+# SpriteObject Class
 # ================================
-
-
 
 class SpriteObject(pg.sprite.Sprite):
     """
-    A simplified sprite class for Year 10 students.
+    A simple game object (player, enemy, coin...) with an image or Animator.
 
-    Features:
-    - Holds an image or an Animator
-    - Tracks position with a rect
-    - Supports movement
-    - Simple collision detection
+    Parameters:
+        x, y          - position (top-left)
+        width, height - optional size; the image is scaled to fit
+        image         - a Surface or an image filename, e.g. "player.png"
+        animator      - an Animator (used instead of image)
+        bg            - colour of the plain box used when there is no image
+
+    Example:
+        player = SpriteObject(100, 100, image="player.png")
+        player.move(5, 0)
+        if player.collides_with(enemy): ...
     """
 
-    def __init__(self, x, y, width=None, height=None, image=None, animator=None):
+    def __init__(self, x, y, width=None, height=None, image=None, animator=None,
+                 bg=(255, 0, 255)):
         super().__init__()
         self.animator = animator
-        self.image = image
-        if self.animator:
-            self.image = self.animator.frames[0]
 
-        # No image or animator: use a plain coloured rectangle
-        if self.image is None:
-            self.image = pg.Surface((width or 32, height or 32))
-            self.image.fill((255, 0, 255))
+        if isinstance(image, str):
+            image = pg.image.load(image).convert_alpha()
+        if animator:
+            image = animator.frames[0]
+        if image is None:
+            image = pg.Surface((width or 32, height or 32))
+            image.fill(bg)
 
-        # Use given size or image size
-        self.size = None
-        if width and height:
-            self.size = (width, height)
-            self.image = pg.transform.scale(self.image, self.size)
+        self.size = (width, height) if width and height else None
+        self.image = self._fit(image)
         self.rect = self.image.get_rect(topleft=(x, y))
+        self.visible = True
 
-        # Velocity
-        self.dx = 0
-        self.dy = 0
+    def _fit(self, image):
+        """Scale the image to the size given when the sprite was made."""
+        if self.size and image.get_size() != self.size:
+            return pg.transform.scale(image, self.size)
+        return image
 
     def move(self, dx, dy):
-        """Move the sprite by dx and dy."""
+        """Move the sprite by dx, dy pixels."""
         self.rect.x += dx
         self.rect.y += dy
 
-    def update(self, tick):
-        """Update animator if exists, return current frame."""
-        if self.animator:
-            self.image = self.animator.update(tick)
-            # Keep the size given when the sprite was made
-            if self.size and self.image.get_size() != self.size:
-                self.image = pg.transform.scale(self.image, self.size)
-
     def collides_with(self, other):
-        """Check collision with another SpriteObject."""
+        """True if this sprite touches another (anything with a .rect)."""
         return self.rect.colliderect(other.rect)
 
-    def handle_event(self, event, offset=(0,0)):
+    def handle_event(self, event, offset=(0, 0)):
         pass
 
-# ================================
-# TextBox Class
-# ================================
-
-class TextBox:
-    """
-    A simple Pygame text input box for Year 10 students.
-
-    Features:
-    - Click to focus / type
-    - Backspace, typing, and cursor blinking
-    - get_text(), set_text(), insert_text()
-    - Visual sunken textbox appearance
-    - Character limit + auto-sizing from font width
-    - Optional label positioned left, top, right, or bottom
-    - Works inside Frames via offset support
-    """
-
-    def __init__(self, x, y,
-                 max_chars=20, font_size=24,
-                 text_color=(0, 0, 0),
-                 box_color=(230, 230, 230),
-                 border_color=(100, 100, 100),
-                 padding=6,
-                 label_text=None,
-                 label_color=(255, 255, 255),
-                 label_gap=10,
-                 label_position="left"):
-        self.font = pg.font.SysFont(None, font_size)
-        self.text_color = text_color
-        self.box_color = box_color
-        self.border_color = border_color
-        self.padding = padding
-        self.label_text = label_text
-        self.label_color = label_color
-        self.label_gap = label_gap
-        self.label_position = label_position.lower()
-
-        # Estimate box size
-        avg_char_width = self.font.size("M")[0]
-        box_width = max_chars * avg_char_width + padding * 2
-        box_height = font_size + padding * 2
-
-        # Label surface
-        if self.label_text:
-            self.label_surface = self.font.render(self.label_text, True, self.label_color)
-            self.label_rect = self.label_surface.get_rect()
-        else:
-            self.label_surface = None
-            self.label_rect = None
-
-        # Layout relative positions (local to this element)
-        self._compute_layout(x, y, box_width, box_height)
-
-        # Text state
-        self.text = ""
-        self.max_chars = max_chars
-        self.cursor_pos = 0
-        self.cursor_visible = True
-        self.cursor_timer = 0
-        self.active = False
-
-    # ------------------------------------------------
-    def _compute_layout(self, x, y, box_width, box_height):
-        """Compute rects for label and box relative to (x, y) combined area."""
-        if self.label_surface:
-            if self.label_position == "left":
-                total_width = self.label_rect.width + self.label_gap + box_width
-                total_height = max(box_height, self.label_rect.height)
-                self.rect = pg.Rect(self.label_rect.width + self.label_gap, 
-                                    (total_height - box_height) // 2, 
-                                    box_width, box_height)
-                self.label_rect.topleft = (0, (total_height - self.label_rect.height) // 2)
-                self.total_rect = pg.Rect(x, y, total_width, total_height)
-
-            elif self.label_position == "right":
-                total_width = self.label_rect.width + self.label_gap + box_width
-                total_height = max(box_height, self.label_rect.height)
-                self.rect = pg.Rect(0, (total_height - box_height) // 2,
-                                    box_width, box_height)
-                self.label_rect.topleft = (box_width + self.label_gap, (total_height - self.label_rect.height) // 2)
-                self.total_rect = pg.Rect(x, y, total_width, total_height)
-
-            elif self.label_position == "top":
-                total_width = max(box_width, self.label_rect.width)
-                total_height = self.label_rect.height + self.label_gap + box_height
-                self.label_rect.midtop = (total_width // 2, 0)
-                self.rect = pg.Rect((total_width - box_width) // 2,
-                                    self.label_rect.height + self.label_gap,
-                                    box_width, box_height)
-                self.total_rect = pg.Rect(x, y, total_width, total_height)
-
-            elif self.label_position == "bottom":
-                total_width = max(box_width, self.label_rect.width)
-                total_height = self.label_rect.height + self.label_gap + box_height
-                self.rect = pg.Rect((total_width - box_width) // 2, 0,
-                                    box_width, box_height)
-                self.label_rect.midtop = (total_width // 2, box_height + self.label_gap)
-                self.total_rect = pg.Rect(x, y, total_width, total_height)
-        else:
-            self.rect = pg.Rect(0, 0, box_width, box_height)
-            self.total_rect = pg.Rect(x, y, box_width, box_height)
-
-    # ------------------------------------------------
-    def handle_event(self, event, offset=(0, 0)):
-        """Handle key presses and mouse clicks, supporting offset."""
-        # Get absolute rect for click detection
-        abs_rect = self.rect.move(self.total_rect.x + offset[0],
-                                  self.total_rect.y + offset[1])
-
-        if event.type == pg.MOUSEBUTTONDOWN:
-            self.active = abs_rect.collidepoint(event.pos)
-
-        if self.active and event.type == pg.KEYDOWN:
-            if event.key == pg.K_BACKSPACE:
-                if self.cursor_pos > 0:
-                    self.text = self.text[:self.cursor_pos - 1] + self.text[self.cursor_pos:]
-                    self.cursor_pos -= 1
-            elif event.key == pg.K_DELETE:
-                self.text = self.text[:self.cursor_pos] + self.text[self.cursor_pos + 1:]
-            elif event.key == pg.K_LEFT:
-                self.cursor_pos = max(0, self.cursor_pos - 1)
-            elif event.key == pg.K_RIGHT:
-                self.cursor_pos = min(len(self.text), self.cursor_pos + 1)
-            elif event.key == pg.K_HOME:
-                self.cursor_pos = 0
-            elif event.key == pg.K_END:
-                self.cursor_pos = len(self.text)
-            elif event.unicode.isprintable():
-                self.insert_text(event.unicode)
-
-    # ------------------------------------------------
     def update(self, tick):
-        """Blinking cursor animation."""
-        self.cursor_timer += tick
-        if self.cursor_timer >= 400:
-            self.cursor_timer = 0
-            self.cursor_visible = not self.cursor_visible
+        """Play the animation (if there is an Animator)."""
+        if self.animator:
+            self.image = self._fit(self.animator.update(tick))
 
-    # ------------------------------------------------
-    def draw(self, screen, offset=(0, 0)):
-        """Draw the label and text box relative to an optional frame offset."""
-        # Compute on-screen position
-        ox, oy = self.total_rect.x + offset[0], self.total_rect.y + offset[1]
-
-        # Label
-        if self.label_surface:
-            label_rect = self.label_rect.move(ox, oy)
-            screen.blit(self.label_surface, label_rect)
-
-        # Text box
-        box_rect = self.rect.move(ox, oy)
-        pg.draw.rect(screen, (255, 255, 255), box_rect)
-        pg.draw.rect(screen, self.border_color, box_rect, 2)
-        inner_rect = box_rect.inflate(-4, -4)
-        pg.draw.rect(screen, self.box_color, inner_rect)
-
-        # Text
-        text_surface = self.font.render(self.text, True, self.text_color)
-        text_x = inner_rect.x + self.padding
-        text_y = inner_rect.y + (inner_rect.height - text_surface.get_height()) // 2
-        screen.blit(text_surface, (text_x, text_y))
-
-        # Cursor
-        if self.active and self.cursor_visible:
-            cursor_x = text_x + self.font.size(self.text[:self.cursor_pos])[0]
-            cursor_y = text_y
-            pg.draw.line(screen, (0, 0, 0),
-                         (cursor_x, cursor_y),
-                         (cursor_x, cursor_y + text_surface.get_height()), 2)
-
-    # ------------------------------------------------
-    def get_text(self):
-        return self.text
-
-    def set_text(self, new_text):
-        self.text = new_text[:self.max_chars]
-        self.cursor_pos = len(self.text)
-
-    def insert_text(self, char):
-        if len(self.text) < self.max_chars:
-            self.text = self.text[:self.cursor_pos] + char + self.text[self.cursor_pos:]
-            self.cursor_pos += 1
-
-# ================================
-# Popup Class
-# ================================
-
-class Popup:
-    """
-    A simple modal popup window that overlays the main screen or a frame.
-    """
-    def __init__(self, x, y, width, height, title="Popup", bg_color=(240, 240, 240)):
-        self.rect = pg.Rect(x, y, width, height)
-        self.bg_color = bg_color
-        self.title = title
-        self.visible = False
-        self.children = []
-        self.title_height = 40   # children are placed below the title bar
-        self.close_button = Button(width - 30, 10, 20, 20, "X", colour=(200, 60, 60),
-                                   hover_colour=(255, 80, 80), center=False,
-                                   action=self.hide)
-    
-    def add(self, element):
-        """Add child UI element."""
-        self.children.append(element)
-
-    def show(self):
-        self.visible = True
-
-    def hide(self):
-        self.visible = False
-
-    def _offsets(self, offset):
-        """Return (popup top-left, children top-left) on screen."""
-        px = self.rect.x + offset[0]
-        py = self.rect.y + offset[1]
-        return (px, py), (px, py + self.title_height)
-
-    def handle_event(self, event, offset=(0, 0)):
-        """Only handle events when visible."""
+    def draw(self, screen, camera=None):
+        """Draw the sprite. Pass the camera if the world scrolls."""
         if not self.visible:
             return
+        r = camera.apply(self.rect) if camera else self.rect
+        screen.blit(self.image, r)
 
-        popup_pos, child_pos = self._offsets(offset)
-        for child in self.children:
-            if hasattr(child, "handle_event"):
-                child.handle_event(event, offset=child_pos)
-        self.close_button.handle_event(event, offset=popup_pos)
-
-    def update(self, tick):
-        """Update animations or child widgets."""
-        if not self.visible:
-            return
-        for child in self.children:
-            if hasattr(child, "update"):
-                child.update(tick)
-
-    def draw(self, screen, offset=(0, 0)):
-        if not self.visible:
-            return
-
-        popup_pos, child_pos = self._offsets(offset)
-        box = pg.Rect(popup_pos, self.rect.size)
-
-        # Dim background (optional)
-        overlay = pg.Surface(screen.get_size(), pg.SRCALPHA)
-        overlay.fill((0, 0, 0, 120))
-        screen.blit(overlay, (0, 0))
-
-        # Draw popup background
-        pg.draw.rect(screen, self.bg_color, box, border_radius=10)
-        pg.draw.rect(screen, (0, 0, 0), box, 2, border_radius=10)
-
-        # Title
-        font = pg.font.SysFont(None, 24)
-        title_surface = font.render(self.title, True, (0, 0, 0))
-        screen.blit(title_surface, (box.x + 10, box.y + 10))
-
-        # Draw children (below the title bar)
-        for child in self.children:
-            if hasattr(child, "draw"):
-                child.draw(screen, offset=child_pos)
-
-        # Close button
-        self.close_button.draw(screen, offset=popup_pos)
 
 # ================================
 # World Class
@@ -1088,78 +1295,56 @@ class Popup:
 
 class World:
     """
-    A container for:
-        • Tilemap background layers
-        • Tilemap foreground layers
-        • Dynamic sprite objects (player, enemies, NPC)
-        • Camera-based drawing
+    Puts a TiledMap, a Camera and your sprites together and draws them in
+    the right order: background tiles, sprites, then foreground tiles.
+
+    Parameters:
+        tiled_map - a TiledMap
+        camera    - a Camera (if you use a ZoomCamera, give World the base Camera)
+
+    Example:
+        world = World(TiledMap("level1.tmx"), camera)
+        world.add_sprite(player)
+        world.update(tick)        # in update(tick)
+        world.draw(screen)        # in draw_game()
     """
 
     def __init__(self, tiled_map, camera):
-        self.map = tiled_map            # TiledMap instance
-        self.camera = camera            # Camera instance
+        self.map = tiled_map
+        self.camera = camera
+        self.sprites = pg.sprite.Group()
 
-        # Sprite groups
-        self.sprites = pg.sprite.Group()     # Player, enemies, etc.
+    def add_sprite(self, *sprites):
+        """Add one or more sprites (player, enemies...)."""
+        self.sprites.add(*sprites)
 
-    # ----------------------------------------------------------------------
-
-    def add_sprite(self, sprite):
-        """Add any dynamic object (player, enemy) to the world."""
-        self.sprites.add(sprite)
-
-    # ----------------------------------------------------------------------
-
-    def update(self, dt):
-        """Update tiles (animated), dynamic sprites, and camera logic."""
-        
-        # Update animated tiles
+    def update(self, tick):
+        """Animate tiles and sprites."""
         for tile in self.map.background:
-            if hasattr(tile, "update"):
-                tile.update(dt)
-
+            tile.update(tick)
         for tile in self.map.foreground:
-            if hasattr(tile, "update"):
-                tile.update(dt)
+            tile.update(tick)
+        for sprite in self.sprites:
+            sprite.update(tick)
 
-        # Update all sprites
-        for spr in self.sprites:
-            if hasattr(spr, "update"):
-                spr.update(dt)
+    def _draw_tiles(self, screen, tiles, view):
+        for tile in tiles:
+            if tile.rect.colliderect(view):      # skip tiles off screen
+                tile.draw(screen, self.camera)
 
-    # ----------------------------------------------------------------------
+    def draw(self, screen):
+        """Draw background tiles, then sprites, then foreground tiles."""
+        # The part of the world that is on screen
+        view = pg.Rect(int(self.camera.offset.x), int(self.camera.offset.y),
+                       screen.get_width() + 1, screen.get_height() + 1)
 
-    def draw(self, surface):
-        """
-        Draw order:
-            1. Background tile layers
-            2. Sprite objects (player, enemies)
-            3. Foreground tile layers (trees, roofs, top-layers etc)
-        """
-
-        # -----------------------------
-        # Draw BACKGROUND tiles
-        # -----------------------------
-        for tile in self.map.background:
-            tx = tile.rect.x - self.camera.offset.x
-            ty = tile.rect.y - self.camera.offset.y
-            surface.blit(tile.image, (tx, ty))
-
-        # -----------------------------
-        # Draw SPRITES
-        # -----------------------------
-        for spr in self.sprites:
-            sx = spr.rect.x - self.camera.offset.x
-            sy = spr.rect.y - self.camera.offset.y
-            surface.blit(spr.image, (sx, sy))
-
-        # -----------------------------
-        # Draw FOREGROUND tiles
-        # -----------------------------
-        for tile in self.map.foreground:
-            tx = tile.rect.x - self.camera.offset.x
-            ty = tile.rect.y - self.camera.offset.y
-            surface.blit(tile.image, (tx, ty))
+        self._draw_tiles(screen, self.map.background, view)
+        for sprite in self.sprites:
+            if hasattr(sprite, "draw"):
+                sprite.draw(screen, self.camera)
+            else:
+                screen.blit(sprite.image, self.camera.apply(sprite.rect))
+        self._draw_tiles(screen, self.map.foreground, view)
 
 
 # ================================
@@ -1182,7 +1367,7 @@ class JoystickManager:
         debug    - if True, print every button / axis / hat change
 
     Put pad.handle_event(event) in handle_inputs()
-    and pad.update() at the start of update(tick).
+    and pad.update(tick) at the start of update(tick).
     """
 
     def __init__(self, index=0, deadzone=0.15, debug=False):
@@ -1265,7 +1450,7 @@ class JoystickManager:
             for command in self.commands.get(event.button, []):
                 command()
 
-    def update(self):
+    def update(self, tick=None):
         """Call this once per frame, at the start of update(tick)."""
         self._held_before = self._held
         self._held = set()
@@ -1408,7 +1593,7 @@ class JoystickManager:
     def draw_debug(self, screen, x=10, y=10):
         """Draw a live panel showing every button, axis and hat."""
         if self._font is None:
-            self._font = pg.font.SysFont(None, 22)
+            self._font = get_font(None, 22)
         font = self._font
         white = (255, 255, 255)
 

@@ -42,7 +42,7 @@ def init_pygame():
 
     player = pg.Rect(WIDTH // 2, HEIGHT // 2, 40, 40)
     player_colour = (0, 200, 255)
-    message = Label("", x=20, y=20)
+    message = Label(20, 20, "")
 
 
 def handle_inputs():
@@ -59,7 +59,7 @@ def handle_inputs():
 def update(tick):
     """Move, animate and check things."""
     # >>> Objects with update go here
-    pad.update()                           # always first
+    pad.update(tick)                       # always first
 
     seconds = tick / 1000                  # tick is in milliseconds
     dx = pad.get_axis("move_x")
@@ -77,9 +77,9 @@ def update(tick):
         print("Jump!")
 
     if pad.connected:
-        message.text = "Stick or D-pad to move, A to jump, B to change colour"
+        message.config(text="Stick or D-pad to move, A to jump, B to change colour")
     else:
-        message.text = "Plug in a controller"
+        message.config(text="Plug in a controller")
 
 
 def draw_game():
