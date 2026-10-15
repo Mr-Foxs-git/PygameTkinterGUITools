@@ -330,6 +330,19 @@ In Tiled, give objects a **Class** of `collision` or `trigger`, name spawn
 points with "spawn" in the name, and put a layer named "Foreground" in front
 of the player.
 
+#### Making big maps run fast
+`World` only looks at the part of the map on screen and only updates
+animated tiles, so a big map runs about as fast as a small one. Press **F1**
+(with `Debug.handle_event(event)`) to see the frame rate (FPS) and how many
+tiles are drawn - if FPS is below 60, something is slow.
+- Load images, maps and sounds in `init_pygame()` - **never** inside the game loop.
+- Call `pg.display.set_mode(...)` **before** `TiledMap(...)` so tiles load in the
+  fast screen format.
+- Draw one big collision box over a wall instead of one per tile.
+- Animated tiles cost a little every frame - use them where they matter.
+- Moved a tile yourself? Call `world.refresh()`.
+- `World(level, camera, chunks=False)` goes back to the v1.0 way (checks every tile).
+
 ### Layout managers (like tkinter)
 Make widgets with their parent first, then grid / pack / place them:
 ```python
@@ -695,6 +708,12 @@ Everything here is **added** - code written for v1.0 still works the same.
 - New `MessageBox` and `askyesno()`, `askyesnocancel()`, `askokcancel()`,
   `showinfo()`.
 - New example `shop_editor_example.py`, new test `test_table_popup_messagebox.py`.
+- Big maps run faster: `World` sorts tiles into chunks and only updates animated
+  tiles (`chunks=False` for the old way, `world.refresh()` after moving tiles).
+  Tiles loaded by `TiledMap` have a `map_layer` number. With F1 on, `World` shows
+  the FPS and tiles drawn.
+- Bodies (`TopDownBody`, `PlatformerBody`) check walls faster - the results are
+  exactly the same. New test `test_big_maps.py`.
 
 ## Example art
 

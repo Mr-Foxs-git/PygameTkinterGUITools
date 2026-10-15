@@ -66,6 +66,7 @@
     <Compile Include="tests\test_phase_b.py" />
     <Compile Include="examples\shop_editor_example.py" />
     <Compile Include="tests\test_table_popup_messagebox.py" />
+    <Compile Include="tests\test_big_maps.py" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="docs\" />

@@ -5123,7 +5123,7 @@ class TiledMap:
         return [o["rect"] for o in self.objects_of_type(obj_type)]
 
     def _load_tile_layers(self):
-        for layer in self.tmx.visible_layers:
+        for layer_number, layer in enumerate(self.tmx.visible_layers):
             if hasattr(layer, "tiles"):
 
                 for x, y, surf in layer.tiles():
@@ -5154,6 +5154,7 @@ class TiledMap:
 
                         animator = Animator(frames, from_sheet=False, frame_rate=frame_rate)
                         anim_tile = AnimatedTile(world_pos, animator)
+                        anim_tile.map_layer = layer_number     # World draws layer by layer
 
                         if "foreground" in layer.name.lower():
                             self.foreground.add(anim_tile)
@@ -5166,6 +5167,7 @@ class TiledMap:
                     # Static tile
                     # ----------------------------
                     tile = Tile(world_pos, surf)
+                    tile.map_layer = layer_number
 
                     if "foreground" in layer.name.lower():
                         self.foreground.add(tile)
@@ -5339,18 +5341,70 @@ class World:
     Parameters:
         tiled_map - a TiledMap
         camera    - a Camera (if you use a ZoomCamera, give World the base Camera)
+        chunks    - True (default): big maps stay fast (see below).
+                    False: check every tile every frame (the v1.0 way)
 
     Example:
         world = World(TiledMap("level1.tmx"), camera)
         world.add_sprite(player)
         world.update(tick)        # in update(tick)
         world.draw(screen)        # in draw_game()
+
+    Why big maps stay fast: the tiles are sorted into squares ("chunks") of
+    CHUNK_SIZE pixels when the map loads. Each frame only the chunks on the
+    screen are looked at, and only animated tiles are updated - so a huge
+    map costs about the same as a small one.
+    If you add or remove tiles in map.background / map.foreground the chunks
+    are rebuilt by themselves. If you MOVE a tile (or swap tiles in and out
+    in the same frame), call world.refresh().
+    With Debug on (F1), the frame rate and the number of tiles drawn show
+    in the top-left corner.
     """
 
-    def __init__(self, tiled_map, camera):
+    CHUNK_SIZE = 256        # pixels
+
+    def __init__(self, tiled_map, camera, chunks=True):
         self.map = tiled_map
         self.camera = camera
         self.sprites = pg.sprite.Group()
+        self.chunks = chunks
+        self._caches = {}           # one per tile group (background / foreground)
+        self.tiles_drawn = 0        # shown in the F1 debug view
+        self._frame_times = []
+
+    def refresh(self):
+        """Re-sort the tiles into chunks (only needed after moving tiles)."""
+        self._caches = {}
+
+    def _cache(self, tiles):
+        """
+        The tiles of one group, sorted for fast drawing:
+            "layers"   - for each map layer (in drawing order): {chunk: [tiles]}
+            "changing" - tiles that need update() (animated / your own kinds)
+        Built again whenever tiles are added or removed.
+        """
+        cache = self._caches.get(id(tiles))
+        if cache is not None and cache["count"] == len(tiles):
+            return cache
+        size = self.CHUNK_SIZE
+        layers, changing = [], []
+        current_key, current = object(), None
+        biggest = [0, 0]
+        for tile in tiles:                       # the same order as the old way
+            key = getattr(tile, "map_layer", None)
+            if key != current_key:               # a new layer starts
+                current_key, current = key, {}
+                layers.append(current)
+            r = tile.rect
+            current.setdefault((r.x // size, r.y // size), []).append(tile)
+            biggest[0] = max(biggest[0], r.width)
+            biggest[1] = max(biggest[1], r.height)
+            if type(tile).update is not Tile.update:     # still tiles never change
+                changing.append(tile)
+        cache = {"count": len(tiles), "layers": layers, "changing": changing,
+                 "biggest": biggest}
+        self._caches[id(tiles)] = cache
+        return cache
 
     def add_sprite(self, *sprites):
         """Add one or more sprites (player, enemies...)."""
@@ -5358,17 +5412,50 @@ class World:
 
     def update(self, tick):
         """Animate tiles and sprites."""
-        for tile in self.map.background:
-            tile.update(tick)
-        for tile in self.map.foreground:
-            tile.update(tick)
+        for tiles in (self.map.background, self.map.foreground):
+            if self.chunks:
+                for tile in self._cache(tiles)["changing"]:   # still tiles are skipped
+                    tile.update(tick)
+            else:
+                for tile in tiles:
+                    tile.update(tick)
         for sprite in self.sprites:
             sprite.update(tick)
 
     def _draw_tiles(self, screen, tiles, view):
-        for tile in tiles:
-            if tile.rect.colliderect(view):      # skip tiles off screen
-                tile.draw(screen, self.camera)
+        if not self.chunks:
+            for tile in tiles:
+                if tile.rect.colliderect(view):      # skip tiles off screen
+                    tile.draw(screen, self.camera)
+                    self.tiles_drawn += 1
+            return
+        cache = self._cache(tiles)
+        size = self.CHUNK_SIZE
+        # Tiles are filed under their top-left corner, so look a little further
+        # up and left in case a big tile hangs onto the screen
+        first_x = (view.left - cache["biggest"][0]) // size
+        first_y = (view.top - cache["biggest"][1]) // size
+        last_x, last_y = view.right // size, view.bottom // size
+        for layer in cache["layers"]:
+            for cy in range(first_y, last_y + 1):
+                for cx in range(first_x, last_x + 1):
+                    for tile in layer.get((cx, cy), ()):
+                        if tile not in tiles:        # removed: sort again next frame
+                            cache["count"] = -1
+                            continue
+                        if tile.rect.colliderect(view):
+                            tile.draw(screen, self.camera)
+                            self.tiles_drawn += 1
+
+    def _draw_debug(self, screen):
+        """F1: frame rate and tiles drawn, so lag can be seen, not guessed."""
+        now = pg.time.get_ticks()
+        self._frame_times = [t for t in self._frame_times if now - t < 1000] + [now]
+        text = f"FPS {len(self._frame_times)}   tiles drawn {self.tiles_drawn}"
+        surface = get_font(None, 22).render(text, True, (255, 255, 0))
+        back = pg.Rect(4, 4, surface.get_width() + 8, surface.get_height() + 4)
+        pg.draw.rect(screen, (0, 0, 0), back)
+        screen.blit(surface, (8, 6))
 
     def draw(self, screen):
         """Draw background tiles, then sprites, then foreground tiles."""
@@ -5376,6 +5463,7 @@ class World:
         view = pg.Rect(int(self.camera.offset.x), int(self.camera.offset.y),
                        screen.get_width() + 1, screen.get_height() + 1)
 
+        self.tiles_drawn = 0
         self._draw_tiles(screen, self.map.background, view)
         for sprite in self.sprites:
             if hasattr(sprite, "draw"):
@@ -5383,6 +5471,8 @@ class World:
             else:
                 screen.blit(sprite.image, self.camera.apply(sprite.rect))
         self._draw_tiles(screen, self.map.foreground, view)
+        if Debug.on:
+            self._draw_debug(screen)
 
 
 # ================================
@@ -7231,6 +7321,20 @@ class Chaser:
 # Body classes (movement with collisions)
 # ================================
 
+def _nearby(solids, before, after):
+    """
+    The solids that a move from rect `before` to rect `after` could touch, in
+    their original order. pygame checks them all in fast C code, so maps with
+    hundreds of walls stay quick. The results are exactly the same as
+    checking every solid.
+    """
+    area = before.union(after)
+    near = [solids[i] for i in area.collidelistall(solids)]
+    if before.collidelist(near) != -1:
+        return solids            # already stuck in a wall: check everything (v1.0 way)
+    return near
+
+
 class Body:
     """
     The base for TopDownBody and PlatformerBody: moves a sprite and stops it
@@ -7283,8 +7387,9 @@ class Body:
         solids = self._solid_rects()
 
         self._pos.x += dx
+        before = r.copy()
         r.x = round(self._pos.x)
-        for s in solids:
+        for s in _nearby(solids, before, r):
             if r.colliderect(s):
                 if dx > 0:
                     r.right = s.left
@@ -7297,8 +7402,9 @@ class Body:
 
         old_bottom = r.bottom
         self._pos.y += dy
+        before = r.copy()
         r.y = round(self._pos.y)
-        for s in solids:
+        for s in _nearby(solids, before, r):
             if r.colliderect(s):
                 if dy > 0:
                     r.bottom = s.top
@@ -7548,10 +7654,8 @@ class PlatformerBody(Body):
         # check the pixel just below our feet
         if "bottom" not in self.touching and self.velocity.y >= 0:
             feet = pg.Rect(self.sprite.rect.x, self.sprite.rect.bottom, self.sprite.rect.width, 1)
-            for solid in self.solids:
-                if feet.colliderect(_rect_of(solid)):
-                    self.touching.add("bottom")
-                    break
+            if feet.collidelist(self._solid_rects()) != -1:
+                self.touching.add("bottom")
             else:
                 if self._drop_timer <= 0 and not self.climbing:
                     for platform in self.platforms:
@@ -7567,10 +7671,10 @@ class PlatformerBody(Body):
             self._coyote = self.coyote_ms
             self._jumps_used = 0
             if self.standing_on is None:
-                self.standing_on = next((s for s in self.solids
-                                         if pg.Rect(self.sprite.rect.x, self.sprite.rect.bottom,
-                                                    self.sprite.rect.width, 1)
-                                         .colliderect(_rect_of(s))), None)
+                feet = pg.Rect(self.sprite.rect.x, self.sprite.rect.bottom,
+                               self.sprite.rect.width, 1)
+                index = feet.collidelist(self._solid_rects())
+                self.standing_on = list(self.solids)[index] if index != -1 else None
         elif was_on_ground and self.velocity.y >= 0:
             self._coyote = self.coyote_ms         # just walked off a ledge
         # Controls only last one frame: call move() / climb() every frame
