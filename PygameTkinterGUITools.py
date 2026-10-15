@@ -14,6 +14,11 @@ JoystickManager, KeyboardInput, MouseInput, Grid, DragObject, DragGroup,
 Tooltip.
 Movement: Path, PathFollower, Patrol, NavGrid, Chaser, line_of_sight,
 TopDownBody, PlatformerBody, MovingPlatform.
+Game structure: Scenes, Scene, after, after_repeat, after_cancel, Countdown,
+save_data, load_data, HighScores, Debug.
+Layout (like tkinter): widget.grid() / pack() / place(), Root.
+Combat: Health, Projectile, ProjectileGroup, Shooter, flash, blink, knockback,
+camera.shake.
 Sound: init_audio, Audio, SoundEffect, Music.
 
 Every object uses the same methods, so they all go in the same place in
@@ -212,6 +217,7 @@ THEMES = {
         "Separator": {"fg": (150, 150, 150)},
         "Frame": {"bg": (60, 60, 60), "border_width": 2},
         "LabelFrame": {"bg": None, "border_width": 2},
+        "Root": {"bg": None, "border_width": 0},
         "Notebook": {"bg": (60, 60, 60), "tab_bg": (90, 90, 90), "border_width": 2},
         "Popup": {"fg": BLACK, "bg": (240, 240, 240), "border_color": BLACK,
                   "border_width": 2},
@@ -343,6 +349,10 @@ class Widget:
 
     def __init__(self, x, y, width=0, height=0, center=False, visible=True,
                  style=None, state="normal"):
+        # tkinter style: Label(menu, text="Hi") - the first value is the parent
+        parent = None
+        if isinstance(x, Container):
+            parent, x, y = x, 0, 0
         self.x = x
         self.y = y
         self.width = width
@@ -354,6 +364,11 @@ class Widget:
         self.focused = False        # set by FocusGroup
         self.parent = None          # the Frame / Notebook / Popup it is in
         self._last_offset = (0, 0)  # where it was last drawn (used by FocusGroup)
+        self._layout = None         # ("grid" / "pack" / "place", options)
+        self._layout_size = None    # size given by a layout (sticky / fill)
+        self._made_in_parent = parent is not None
+        if parent is not None:
+            parent.add(self)
 
     # ---- position ----
     @property
@@ -363,7 +378,8 @@ class Widget:
 
     def get_rect(self, offset=(0, 0)):
         """The widget's rectangle on screen, after adding offset."""
-        r = pg.Rect(0, 0, self.width, self.height)
+        w, h = self._layout_size or (self.width, self.height)
+        r = pg.Rect(0, 0, w, h)
         position = (self.x + offset[0], self.y + offset[1])
         if self.center:
             r.center = position
@@ -427,6 +443,9 @@ class Widget:
             if not hasattr(self, name):
                 raise ValueError(f"{type(self).__name__} has no option '{name}'")
             setattr(self, name, value)
+            if name in ("width", "height") and hasattr(self, "_given_size"):
+                w, h = self._given_size
+                self._given_size = (value, h) if name == "width" else (w, value)
         self._refresh()
 
     configure = config      # tkinter has both names
@@ -440,6 +459,73 @@ class Widget:
 
     def _text_colour(self):
         return self.cget("disabled_fg") if self.state == "disabled" else self.cget("fg")
+
+    # ---- layout managers (like tkinter) ----
+    def _check_layout(self, kind):
+        if self.parent is None:
+            raise LayoutError(
+                f"\n\n  >>> The mistake is in YOUR code: {_your_code()}\n"
+                f"  {type(self).__name__}.{kind}() needs a parent: make it with the "
+                f"Frame first, e.g. {type(self).__name__}(menu, ...)\n")
+        others = {c._layout[0] for c in self.parent.children
+                  if c is not self and c._layout and c._layout[0] in ("grid", "pack")}
+        if kind in ("grid", "pack") and others - {kind}:
+            raise LayoutError(
+                f"\n\n  >>> The mistake is in YOUR code: {_your_code()}\n"
+                f"  You can't use grid() and pack() in the same Frame (in tkinter this "
+                f"freezes your program).\n  Put the {kind}() widgets in their own Frame.\n")
+
+    def grid(self, row=0, column=0, rowspan=1, columnspan=1, sticky="", padx=0, pady=0):
+        """
+        Put the widget in a row and column of its Frame, like tkinter.
+        sticky: which sides to stick to, e.g. "w", "e", "ns", "nsew" (stretch).
+        padx / pady: space around it - a number, or (left, right) / (top, bottom).
+        Returns the widget, so  b = Button(menu, text="Go").grid(row=0)  works.
+        """
+        self._check_layout("grid")
+        self._layout = ("grid", dict(row=row, column=column, rowspan=rowspan,
+                                     columnspan=columnspan, sticky=sticky.lower(),
+                                     padx=padx, pady=pady))
+        return self
+
+    def pack(self, side="top", fill=None, expand=False, padx=0, pady=0, anchor="center"):
+        """
+        Stack the widget against a side of its Frame, like tkinter.
+        side: "top", "bottom", "left", "right"   fill: None, "x", "y", "both"
+        expand: True to share the spare space    anchor: "n", "w", "center"...
+        """
+        self._check_layout("pack")
+        self._layout = ("pack", dict(side=side, fill=fill, expand=expand, padx=padx,
+                                     pady=pady, anchor=anchor))
+        return self
+
+    def place(self, x=0, y=0, relx=0.0, rely=0.0, anchor="nw"):
+        """
+        Put the widget at an exact spot in its Frame, like tkinter.
+        relx / rely: 0.0 - 1.0 across / down the Frame (0.5 = middle).
+        anchor: which point of the widget goes there: "nw", "center", "se"...
+        """
+        self._check_layout("place")
+        self._layout = ("place", dict(x=x, y=y, relx=relx, rely=rely, anchor=anchor))
+        return self
+
+    def grid_forget(self):
+        """Take the widget out of the layout (it is hidden, like tkinter)."""
+        self._layout = None
+        self._layout_size = None
+
+    pack_forget = place_forget = grid_forget
+
+    def grid_info(self):
+        return dict(self._layout[1]) if self._layout and self._layout[0] == "grid" else {}
+
+    def pack_info(self):
+        return dict(self._layout[1]) if self._layout and self._layout[0] == "pack" else {}
+
+    def _describe(self):
+        """A short name for warnings, e.g. Label 'Name:'."""
+        words = getattr(self, "text", "") or getattr(self, "label", "") or ""
+        return f"{type(self).__name__} '{words}'" if words else type(self).__name__
 
     # ---- keyboard focus (see FocusGroup) ----
     takes_focus = False          # True for widgets you can use with keys
@@ -465,6 +551,61 @@ class Widget:
 
     def update(self, tick):
         pass
+
+
+class Debug:
+    """
+    One switch for every debug view: layout grids, paths, enemy ranges...
+
+        Debug.handle_event(event)    # in handle_inputs(): F1 turns it on / off
+        if Debug.on: ...             # draw your own debug things too
+    """
+
+    on = False
+    key = pg.K_F1
+
+    @classmethod
+    def toggle(cls):
+        cls.on = not cls.on
+        Path.show_all = cls.on
+
+    @classmethod
+    def handle_event(cls, event):
+        if event.type == pg.KEYDOWN and event.key == cls.key:
+            cls.toggle()
+            return True
+        return False
+
+
+class Layout:
+    """Shared layout settings. Layout warnings are printed once each."""
+    _printed = set()
+
+
+class LayoutError(Exception):
+    """A mistake using grid() / pack() / place()."""
+
+
+def _your_code():
+    """
+    The file and line in the student's program that called the library
+    (so error messages point at their mistake, not at this file).
+    """
+    import inspect
+    import os
+    this_file = os.path.abspath(__file__)
+    for frame in inspect.stack()[1:]:
+        if os.path.abspath(frame.filename) != this_file:
+            line = (frame.code_context or [""])[0].strip()
+            return f"{os.path.basename(frame.filename)}, line {frame.lineno}\n      {line}"
+    return "(unknown)"
+
+
+def _pads(value):
+    """padx=5 -> (5, 5); padx=(2, 8) -> (2, 8)."""
+    if isinstance(value, (tuple, list)):
+        return int(value[0]), int(value[1])
+    return int(value), int(value)
 
 
 def _clicked(event, rect):
@@ -497,7 +638,7 @@ class Label(Widget):
         score.config(text="Score: 10")
     """
 
-    def __init__(self, x, y, text="", textvariable=None, fg=None, bg=None,
+    def __init__(self, x, y=0, text="", textvariable=None, fg=None, bg=None,
                  image=None, font_name=None, font_size=None,
                  center=False, visible=True, style=None):
         super().__init__(x, y, center=center, visible=visible, style=style)
@@ -556,7 +697,7 @@ class Message(Widget):
         story = Message(50, 50, "A long time ago...", width=400)
     """
 
-    def __init__(self, x, y, text="", width=300, textvariable=None, fg=None, bg=None,
+    def __init__(self, x, y=0, text="", width=300, textvariable=None, fg=None, bg=None,
                  font_name=None, font_size=None, justify="left", padding=8,
                  line_spacing=4, center=False, visible=True, style=None):
         super().__init__(x, y, width, 0, center, visible, style)
@@ -651,7 +792,7 @@ class Button(Widget):
 
     takes_focus = True
 
-    def __init__(self, x, y, width, height, text="", command=None,
+    def __init__(self, x, y=0, width=None, height=None, text="", command=None,
                  fg=None, bg=None, hover_bg=None, image=None, hover_image=None,
                  font_name=None, font_size=None,
                  border_color=None, border_colour=None, border_width=None,
@@ -659,7 +800,8 @@ class Button(Widget):
                  shadow=False, shadow_offset=(3, 3),
                  shadow_color=None, shadow_colour=None,
                  center=False, visible=True, state="normal", style=None):
-        super().__init__(x, y, width, height, center, visible, style, state)
+        super().__init__(x, y, width or 0, height or 0, center, visible, style, state)
+        self._given_size = (width, height)     # None = fit the text
         self.text = text
         self.command = command
         self.fg = fg
@@ -675,6 +817,17 @@ class Button(Widget):
         self.shadow = shadow
         self.shadow_offset = shadow_offset
         self.shadow_color = _pick(shadow_color, shadow_colour)
+        self._refresh()
+
+    def _refresh(self):
+        """A Button made without a width / height fits its text."""
+        given_w, given_h = self._given_size
+        if given_w is None or given_h is None:
+            text_w, text_h = self._font().size(str(self.text) or " ")
+            if self.image is not None and not self.text:
+                text_w, text_h = load_image(self.image).get_size()
+            self.width = given_w if given_w is not None else text_w + 30
+            self.height = given_h if given_h is not None else text_h + 16
 
     def is_hovered(self, offset=(0, 0)):
         """True if the mouse is over the button."""
@@ -695,6 +848,7 @@ class Button(Widget):
         if not self.visible:
             return
         self._last_offset = offset
+        self._refresh()
         r = self.get_rect(offset)
         hovered = self.is_hovered(offset) or self.focused
         radius = self.cget("border_radius") or 0
@@ -749,7 +903,7 @@ class Separator(Widget):
         thickness - line thickness
     """
 
-    def __init__(self, x, y, length=200, orient="horizontal", fg=None, thickness=2,
+    def __init__(self, x, y=0, length=200, orient="horizontal", fg=None, thickness=2,
                  center=False, visible=True, style=None):
         super().__init__(x, y, center=center, visible=visible, style=style)
         self.length = length
@@ -805,7 +959,7 @@ class TextBox(Widget):
 
     takes_focus = True
 
-    def __init__(self, x, y, max_chars=20, text="", textvariable=None,
+    def __init__(self, x, y=0, max_chars=20, text="", textvariable=None,
                  fg=None, bg=None, border_color=None, border_colour=None,
                  font_name=None, font_size=None, padding=6,
                  label=None, label_fg=None, label_gap=10, label_position="left",
@@ -1030,7 +1184,7 @@ class Checkbutton(Widget):
     takes_focus = True
     _shape = "box"
 
-    def __init__(self, x, y, text="", variable=None, onvalue=True, offvalue=False,
+    def __init__(self, x, y=0, text="", variable=None, onvalue=True, offvalue=False,
                  command=None, fg=None, bg=None, box_bg=None,
                  check_color=None, check_colour=None, image=None, selected_image=None,
                  box_size=None, font_name=None, font_size=None,
@@ -1157,7 +1311,7 @@ class Radiobutton(Checkbutton):
         Radiobutton(50, 110, "Hard", variable=difficulty, value="Hard")
     """
 
-    def __init__(self, x, y, text="", variable=None, value=None, command=None, **options):
+    def __init__(self, x, y=0, text="", variable=None, value=None, command=None, **options):
         if variable is None:
             variable = StringVar("")
         super().__init__(x, y, text, variable=variable, onvalue=value, command=command,
@@ -1220,7 +1374,7 @@ class Scale(Widget):
 
     takes_focus = True
 
-    def __init__(self, x, y, from_=0, to=100, length=200, orient="horizontal",
+    def __init__(self, x, y=0, from_=0, to=100, length=200, orient="horizontal",
                  variable=None, resolution=1, command=None, label=None, showvalue=True,
                  fg=None, accent=None, trough_color=None, trough_colour=None,
                  thickness=8, handle_image=None, font_name=None, font_size=None,
@@ -1399,7 +1553,7 @@ class Spinbox(Widget):
 
     takes_focus = True
 
-    def __init__(self, x, y, from_=0, to=10, increment=1, values=None, variable=None,
+    def __init__(self, x, y=0, from_=0, to=10, increment=1, values=None, variable=None,
                  wrap=False, width_chars=4, command=None,
                  fg=None, bg=None, button_bg=None, border_color=None, border_colour=None,
                  font_name=None, font_size=None,
@@ -1543,7 +1697,7 @@ class Listbox(Widget):
 
     takes_focus = True
 
-    def __init__(self, x, y, width=200, rows=5, items=None, command=None,
+    def __init__(self, x, y=0, width=200, rows=5, items=None, command=None,
                  fg=None, bg=None, select_fg=None, select_bg=None,
                  border_color=None, border_colour=None, font_name=None, font_size=None,
                  center=False, visible=True, state="normal", style=None):
@@ -1713,7 +1867,7 @@ class Combobox(Widget):
 
     takes_focus = True
 
-    def __init__(self, x, y, width=200, values=None, textvariable=None, command=None,
+    def __init__(self, x, y=0, width=200, values=None, textvariable=None, command=None,
                  max_rows=6, fg=None, bg=None, select_fg=None, select_bg=None,
                  border_color=None, border_colour=None, font_name=None, font_size=None,
                  center=False, visible=True, state="normal", style=None):
@@ -1890,7 +2044,7 @@ class Progressbar(Widget):
         health.config(value=health.value - 10)     # or health.step(-10)
     """
 
-    def __init__(self, x, y, length=200, thickness=20, orient="horizontal",
+    def __init__(self, x, y=0, length=200, thickness=20, orient="horizontal",
                  maximum=100, value=0, variable=None, mode="determinate",
                  bar_color=None, bar_colour=None, trough_color=None, trough_colour=None,
                  border_color=None, border_colour=None, border_width=None,
@@ -2011,7 +2165,8 @@ class Container(Widget):
 
     def __init__(self, x, y, width, height, bg=None, border_color=None, border_width=None,
                  pad_x=10, pad_y=10, center=False, visible=True, style=None):
-        super().__init__(x, y, width, height, center, visible, style)
+        super().__init__(x, y, width or 0, height or 0, center, visible, style)
+        self._auto_size = (width is None, height is None)   # None = fit the children
         self.bg = bg
         self.border_color = border_color
         self.border_width = border_width
@@ -2019,6 +2174,10 @@ class Container(Widget):
         self.pad_y = pad_y
         self.children = []
         self.top_space = 0          # extra space at the top (title bars, tabs)
+        self.debug_layout = False   # True: always show the layout debug view
+        self._col_config = {}
+        self._row_config = {}
+        self._debug_info = {"kind": None, "warnings": []}
 
     def add(self, *widgets):
         """Add one or more widgets, e.g. frame.add(label, button)."""
@@ -2033,7 +2192,9 @@ class Container(Widget):
         return (r.x + self.pad_x, r.y + self.pad_y + self.top_space)
 
     def _visible_children(self):
-        return self.children
+        # Widgets made inside a Frame are only shown once they have
+        # grid() / pack() / place(), just like tkinter
+        return [c for c in self.children if c._layout or not c._made_in_parent]
 
     def has_open_popup(self):
         """True if a drop-down inside is open (it gets the mouse first)."""
@@ -2053,6 +2214,7 @@ class Container(Widget):
         for child in children:
             if hasattr(child, "draw_overlay"):
                 child.draw_overlay(screen, inside)
+        self._draw_layout_debug(screen, offset)
 
     def draw_overlay(self, screen, offset=(0, 0)):
         if self.visible:
@@ -2066,6 +2228,7 @@ class Container(Widget):
         if not self.visible:
             return False
         self._last_offset = offset
+        self._arrange()
         inside = self.child_offset(offset)
         children = self._visible_children()
         # An open drop-down gets the event first
@@ -2081,16 +2244,367 @@ class Container(Widget):
     def update(self, tick):
         if not self.visible:
             return
+        self._arrange()
         for child in self._visible_children():
             child.update(tick)
 
     def _draw_box(self, screen, r, radius=0):
-        if self.cget("bg") is not None:
+        if self.cget("bg"):                 # None or "" = see-through
             pg.draw.rect(screen, self.cget("bg"), r, border_radius=radius)
         border_width = self.cget("border_width") or 0
         if border_width > 0 and self.cget("border_color"):
             pg.draw.rect(screen, self.cget("border_color"), r, border_width,
                          border_radius=radius)
+
+
+
+    # ================================================================
+    # Layout managers: grid / pack / place  (and the F1 debug view)
+    # ================================================================
+    def columnconfigure(self, column, weight=0, minsize=0):
+        """Like tkinter: weight=1 makes this column take spare space."""
+        self._col_config[column] = (weight, minsize)
+
+    def rowconfigure(self, row, weight=0, minsize=0):
+        self._row_config[row] = (weight, minsize)
+
+    grid_columnconfigure = columnconfigure
+    grid_rowconfigure = rowconfigure
+
+    def _inner_size(self):
+        """Space for the children inside the padding (None if the size isn't set)."""
+        r = self.get_rect()
+        if self._auto_size[0] and self._layout_size is None:
+            w = None
+        else:
+            w = r.width - 2 * self.pad_x
+        if self._auto_size[1] and self._layout_size is None:
+            h = None
+        else:
+            h = r.height - 2 * self.pad_y - self.top_space
+        return w, h
+
+    @staticmethod
+    def _natural(widget):
+        """The size a widget wants (before any stretching)."""
+        widget._refresh()
+        if isinstance(widget, Container):
+            widget._arrange()
+        return widget.width, widget.height
+
+    @staticmethod
+    def _stretchable(widget):
+        """Widgets whose drawing follows their rect, so they can be stretched."""
+        return isinstance(widget, (Label, Button, Container, Separator))
+
+    def _arrange(self):
+        """Work out where every grid / pack / place child goes."""
+        managed = [c for c in self.children if c._layout and c.visible]
+        self._debug_info = {"kind": None, "warnings": []}
+        warnings = self._debug_info["warnings"]
+        for child in self.children:
+            if child._made_in_parent and child._layout is None:
+                warnings.append(f"{child._describe()} has no grid() / pack() / place() "
+                                f"- it is not shown")
+        if not managed:
+            if any(self._auto_size):
+                self.width = self.width or 100
+                self.height = self.height or 60
+            self._show_warnings()
+            return
+        kinds = {c._layout[0] for c in managed}
+        avail_w, avail_h = self._inner_size()
+        used_w = used_h = 0
+        if "grid" in kinds:
+            used_w, used_h = self._arrange_grid([c for c in managed if c._layout[0] == "grid"],
+                                                avail_w, avail_h)
+        elif "pack" in kinds:
+            used_w, used_h = self._arrange_pack([c for c in managed if c._layout[0] == "pack"],
+                                                avail_w, avail_h)
+        placed = [c for c in managed if c._layout[0] == "place"]
+        if placed:
+            self._arrange_place(placed, avail_w if avail_w is not None else used_w,
+                                avail_h if avail_h is not None else used_h)
+        # A Frame made without a width / height grows to fit
+        if self._auto_size[0]:
+            self.width = used_w + 2 * self.pad_x
+        if self._auto_size[1]:
+            self.height = used_h + 2 * self.pad_y + self.top_space
+        if avail_w is not None and used_w > avail_w + 1:
+            warnings.append(f"The layout is {used_w}px wide but there is only {avail_w}px "
+                            f"- some widgets don't fit")
+        if avail_h is not None and used_h > avail_h + 1:
+            warnings.append(f"The layout is {used_h}px tall but there is only {avail_h}px "
+                            f"- some widgets don't fit")
+        self._show_warnings()
+
+    def _show_warnings(self):
+        """Print each layout warning once in the console."""
+        for message in self._debug_info["warnings"]:
+            if message not in Layout._printed:
+                Layout._printed.add(message)
+                print("Layout warning:", message)
+
+    # ---- grid ----
+    def _arrange_grid(self, children, avail_w, avail_h):
+        info = [(c, c._layout[1]) for c in children]
+        cols = max(o["column"] + o["columnspan"] for c, o in info)
+        rows = max(o["row"] + o["rowspan"] for c, o in info)
+        col_w = [self._col_config.get(i, (0, 0))[1] for i in range(cols)]
+        row_h = [self._row_config.get(i, (0, 0))[1] for i in range(rows)]
+        sizes = {}
+        for child, o in info:
+            w, h = self._natural(child)
+            px, py = _pads(o["padx"]), _pads(o["pady"])
+            sizes[child] = (w + sum(px), h + sum(py))
+        # Single cells first, then spread anything spanning several cells
+        for span_pass in (False, True):
+            for child, o in info:
+                need_w, need_h = sizes[child]
+                c, r, cs, rs = o["column"], o["row"], o["columnspan"], o["rowspan"]
+                if (cs > 1) == span_pass:
+                    have = sum(col_w[c:c + cs])
+                    if need_w > have:
+                        for i in range(c, c + cs):
+                            col_w[i] += (need_w - have) / cs
+                if (rs > 1) == span_pass:
+                    have = sum(row_h[r:r + rs])
+                    if need_h > have:
+                        for i in range(r, r + rs):
+                            row_h[i] += (need_h - have) / rs
+        # Spare space goes to columns / rows with a weight
+        for sizes_list, avail, config in ((col_w, avail_w, self._col_config),
+                                          (row_h, avail_h, self._row_config)):
+            if avail is None:
+                continue
+            spare = avail - sum(sizes_list)
+            weights = [config.get(i, (0, 0))[0] for i in range(len(sizes_list))]
+            if spare > 0 and sum(weights) > 0:
+                for i, weight in enumerate(weights):
+                    sizes_list[i] += spare * weight / sum(weights)
+        col_x = [sum(col_w[:i]) for i in range(cols)]
+        row_y = [sum(row_h[:i]) for i in range(rows)]
+
+        cells, taken = [], {}
+        warnings = self._debug_info["warnings"]
+        for child, o in info:
+            c, r, cs, rs = o["column"], o["row"], o["columnspan"], o["rowspan"]
+            for rr in range(r, r + rs):
+                for cc in range(c, c + cs):
+                    if (rr, cc) in taken:
+                        warnings.append(f"{child._describe()} and {taken[(rr, cc)]._describe()} "
+                                        f"are both in row {rr}, column {cc}")
+                    taken[(rr, cc)] = child
+            cell = pg.Rect(round(col_x[c]), round(row_y[r]),
+                           round(sum(col_w[c:c + cs])), round(sum(row_h[r:r + rs])))
+            (pl, pr), (pt, pb) = _pads(o["padx"]), _pads(o["pady"])
+            area = pg.Rect(cell.x + pl, cell.y + pt, cell.width - pl - pr, cell.height - pt - pb)
+            self._put_in_area(child, area, o["sticky"])
+            cells.append((child, cell, area))
+        self._debug_info.update(kind="grid", col_x=col_x, col_w=col_w, row_y=row_y,
+                                row_h=row_h, cells=cells)
+        return round(sum(col_w)), round(sum(row_h))
+
+    def _put_in_area(self, child, area, sticky):
+        """Place a child inside its cell, using sticky like tkinter."""
+        w, h = child.width, child.height
+        stretch_w = "e" in sticky and "w" in sticky and self._stretchable(child)
+        stretch_h = "n" in sticky and "s" in sticky and self._stretchable(child)
+        if stretch_w:
+            w = area.width
+        if stretch_h:
+            h = area.height
+        if "w" in sticky:
+            x = area.x
+        elif "e" in sticky:
+            x = area.right - w
+        else:
+            x = area.centerx - w // 2
+        if "n" in sticky:
+            y = area.y
+        elif "s" in sticky:
+            y = area.bottom - h
+        else:
+            y = area.centery - h // 2
+        child.center = False
+        child.x, child.y = x, y
+        child._layout_size = (w, h) if (stretch_w or stretch_h) else None
+
+    # ---- pack ----
+    def _arrange_pack(self, children, avail_w, avail_h):
+        info = []
+        for child in children:
+            o = child._layout[1]
+            w, h = self._natural(child)
+            px, py = _pads(o["padx"]), _pads(o["pady"])
+            info.append((child, o, w + sum(px), h + sum(py)))
+        vertical = [i for i in info if i[1]["side"] in ("top", "bottom")]
+        horizontal = [i for i in info if i[1]["side"] in ("left", "right")]
+        need_w = max([i[2] for i in vertical] + [0]) + sum(i[2] for i in horizontal)
+        need_h = sum(i[3] for i in vertical) + max([i[3] for i in horizontal] + [0])
+        width = avail_w if avail_w is not None else need_w
+        height = avail_h if avail_h is not None else need_h
+        # Spare space for expand=True
+        extra_v = max(0, height - need_h)
+        extra_h = max(0, width - need_w)
+        n_v = sum(1 for i in vertical if i[1]["expand"])
+        n_h = sum(1 for i in horizontal if i[1]["expand"])
+
+        cavity = pg.Rect(0, 0, width, height)
+        parcels = []
+        for child, o, w, h in info:
+            side = o["side"]
+            if side in ("top", "bottom"):
+                ph = h + (extra_v / n_v if o["expand"] and n_v else 0)
+                if side == "top":
+                    parcel = pg.Rect(cavity.x, cavity.y, cavity.width, round(ph))
+                    cavity.y += parcel.height
+                else:
+                    parcel = pg.Rect(cavity.x, cavity.bottom - round(ph), cavity.width, round(ph))
+                cavity.height -= parcel.height
+            else:
+                pw = w + (extra_h / n_h if o["expand"] and n_h else 0)
+                if side == "left":
+                    parcel = pg.Rect(cavity.x, cavity.y, round(pw), cavity.height)
+                    cavity.x += parcel.width
+                else:
+                    parcel = pg.Rect(cavity.right - round(pw), cavity.y, round(pw), cavity.height)
+                cavity.width -= parcel.width
+            (pl, pr), (pt, pb) = _pads(o["padx"]), _pads(o["pady"])
+            area = pg.Rect(parcel.x + pl, parcel.y + pt, parcel.width - pl - pr,
+                           parcel.height - pt - pb)
+            fill = o["fill"] or ""
+            sticky = {"n": "n", "s": "s", "e": "e", "w": "w", "ne": "ne", "nw": "nw",
+                      "se": "se", "sw": "sw", "center": ""}.get(o["anchor"], "")
+            if fill in ("x", "both"):
+                sticky += "ew"
+            if fill in ("y", "both"):
+                sticky += "ns"
+            self._put_in_area(child, area, sticky)
+            parcels.append((child, parcel, area))
+        self._debug_info.update(kind="pack", cells=parcels)
+        return need_w if avail_w is None else max(need_w, 0), need_h if avail_h is None else need_h
+
+    # ---- place ----
+    def _arrange_place(self, children, width, height):
+        anchors = {"nw": (0, 0), "n": (0.5, 0), "ne": (1, 0), "w": (0, 0.5),
+                   "center": (0.5, 0.5), "e": (1, 0.5), "sw": (0, 1), "s": (0.5, 1),
+                   "se": (1, 1)}
+        points = []
+        for child in children:
+            o = child._layout[1]
+            w, h = self._natural(child)
+            px = o["relx"] * width + o["x"]
+            py = o["rely"] * height + o["y"]
+            ax, ay = anchors.get(o["anchor"], (0, 0))
+            child.center = False
+            child.x, child.y = round(px - ax * w), round(py - ay * h)
+            child._layout_size = None
+            points.append((child, (px, py)))
+        self._debug_info.setdefault("points", points)
+        self._debug_info["points"] = points
+
+    # ---- debug view (F1, or frame.debug_layout = True) ----
+    def _draw_layout_debug(self, screen, offset=(0, 0)):
+        if not (Debug.on or self.debug_layout) or not hasattr(self, "_debug_info"):
+            return
+        info = self._debug_info
+        ox, oy = self.child_offset(offset)
+        small = get_font(None, 16)
+        cyan, pink, yellow, red = (0, 220, 255), (255, 80, 200), (255, 220, 0), (255, 70, 70)
+
+        # The inside of the frame
+        avail_w, avail_h = self._inner_size()
+        if avail_w and avail_h:
+            pg.draw.rect(screen, (150, 150, 150), (ox, oy, avail_w, avail_h), 1)
+
+        if info.get("kind") == "grid":
+            col_x, col_w, row_y, row_h = info["col_x"], info["col_w"], info["row_y"], info["row_h"]
+            total_w, total_h = sum(col_w), sum(row_h)
+            for i, x in enumerate(col_x + [total_w]):
+                pg.draw.line(screen, cyan, (ox + x, oy), (ox + x, oy + total_h))
+            for i, y in enumerate(row_y + [total_h]):
+                pg.draw.line(screen, cyan, (ox, oy + y), (ox + total_w, oy + y))
+            for i, x in enumerate(col_x):
+                weight = self._col_config.get(i, (0, 0))[0]
+                text = f"col {i}" + (f" w{weight}" if weight else "")
+                screen.blit(small.render(text, True, cyan), (ox + x + 2, oy - 14))
+            for i, y in enumerate(row_y):
+                weight = self._row_config.get(i, (0, 0))[0]
+                text = f"row {i}" + (f" w{weight}" if weight else "")
+                label = small.render(text, True, cyan)
+                screen.blit(label, (ox - label.get_width() - 3, oy + y + 2))
+        if info.get("kind") in ("grid", "pack"):
+            shade = pg.Surface((1, 1), pg.SRCALPHA)
+            for n, (child, cell, area) in enumerate(info["cells"]):
+                cell_s = cell.move(ox, oy)
+                area_s = area.move(ox, oy)
+                # Padding = the part of the cell outside the area (yellow)
+                if cell_s.size != area_s.size:
+                    pad_surface = pg.Surface(cell_s.size, pg.SRCALPHA)
+                    pad_surface.fill((255, 220, 0, 55))
+                    pad_surface.fill((0, 0, 0, 0), area_s.move(-cell_s.x, -cell_s.y))
+                    screen.blit(pad_surface, cell_s)
+                if info["kind"] == "pack":
+                    pg.draw.rect(screen, (255, 160, 0), cell_s, 1)
+                    tag = f"{n + 1}:{child._layout[1]['side']}"
+                    screen.blit(small.render(tag, True, (255, 160, 0)), (cell_s.x + 2, cell_s.y + 1))
+                r = child.get_rect((ox, oy))
+                pg.draw.rect(screen, pink, r, 1)
+                if info["kind"] == "grid":
+                    o = child._layout[1]
+                    tag = f"({o['row']},{o['column']})"
+                    screen.blit(small.render(tag, True, pink), (r.x + 1, r.bottom - 12))
+                    # Sticky arrows
+                    for side, (dx, dy) in {"n": (0, -1), "s": (0, 1), "e": (1, 0),
+                                           "w": (-1, 0)}.items():
+                        if side in o["sticky"]:
+                            start = pg.Vector2(r.center)
+                            end = pg.Vector2(r.centerx + dx * r.width // 2,
+                                             r.centery + dy * r.height // 2)
+                            pg.draw.line(screen, pink, start, end, 1)
+                            pg.draw.circle(screen, pink, end, 3)
+        for child, point in info.get("points", []):
+            px, py = ox + point[0], oy + point[1]
+            pg.draw.line(screen, (120, 255, 120), (px - 6, py), (px + 6, py))
+            pg.draw.line(screen, (120, 255, 120), (px, py - 6), (px, py + 6))
+            pg.draw.rect(screen, (120, 255, 120), child.get_rect((ox, oy)), 1)
+
+        # Warnings, in red at the bottom of the frame
+        r = self.get_rect(offset)
+        y = r.bottom + 2
+        for message in info["warnings"]:
+            screen.blit(small.render("! " + message, True, red), (r.x, y))
+            y += 14
+
+        # Hover a widget to see its layout settings
+        mouse = pg.mouse.get_pos()
+        for child in self.children:
+            if child._layout and child.get_rect((ox, oy)).collidepoint(mouse):
+                kind, options = child._layout
+                words = f"{child._describe()}  {kind}(" + ", ".join(
+                    f"{k}={v!r}" for k, v in options.items()) + ")"
+                label = small.render(words, True, WHITE)
+                box = label.get_rect(topleft=(mouse[0] + 14, mouse[1] + 14)).inflate(8, 6)
+                pg.draw.rect(screen, (20, 20, 30), box)
+                pg.draw.rect(screen, pink, box, 1)
+                screen.blit(label, (box.x + 4, box.y + 3))
+
+    def layout_report(self):
+        """Print a table of every widget's grid / pack / place settings."""
+        self._arrange()
+        print(f"Layout of {self._describe()}  (inside size: {self._inner_size()})")
+        for child in self.children:
+            if child._layout:
+                kind, options = child._layout
+                r = child.get_rect()
+                print(f"  {child._describe():<28} {kind}({', '.join(f'{k}={v!r}' for k, v in options.items())})"
+                      f"  -> x={r.x}, y={r.y}, {r.width}x{r.height}")
+            else:
+                print(f"  {child._describe():<28} x={child.x}, y={child.y}"
+                      + ("   (NOT SHOWN: no grid/pack/place)" if child._made_in_parent else ""))
+        for message in self._debug_info["warnings"]:
+            print("  !", message)
 
 
 # ================================
@@ -2105,19 +2619,22 @@ class Frame(Container):
 
     Parameters:
         x, y, width, height - position and size
-        bg            - background colour
+        bg            - background colour ("" = see-through)
         border_color  - border colour (border_colour also works)
         border_width  - border thickness (0 = no border)
         pad_x, pad_y  - space between the edge and the children
         center        - if True, (x, y) is the centre of the frame
         style         - a named Style, e.g. "Menu.Frame"
 
+    width / height: leave them out and the Frame grows to fit widgets
+    laid out with grid() / pack() (like tkinter).
+
     Example:
         menu = Frame(50, 50, 300, 200)
         menu.add(Label(0, 0, "Menu"), Button(0, 40, 120, 40, "Play"))
     """
 
-    def __init__(self, x, y, width, height, bg=None,
+    def __init__(self, x, y=0, width=None, height=None, bg=None,
                  border_color=None, border_colour=None, border_width=None,
                  pad_x=10, pad_y=10, center=False, visible=True, style=None):
         super().__init__(x, y, width, height, bg, _pick(border_color, border_colour),
@@ -2127,8 +2644,24 @@ class Frame(Container):
         if not self.visible:
             return
         self._last_offset = offset
+        self._arrange()
         self._draw_box(screen, self.get_rect(offset))
         self.draw_children(screen, offset)
+
+
+class Root(Frame):
+    """
+    A see-through Frame that fills the whole window - like tkinter's Tk().
+    Use it to grid() / pack() widgets straight onto the screen:
+
+        root = Root(screen)
+        Label(root, text="Score").grid(row=0, column=0)
+        root.handle_event(event)    root.update(tick)    root.draw(screen)
+    """
+
+    def __init__(self, screen, bg="", padding=0):
+        super().__init__(0, 0, screen.get_width(), screen.get_height(), bg=bg,
+                         border_width=0, pad_x=padding, pad_y=padding)
 
 
 # ================================
@@ -2150,7 +2683,7 @@ class LabelFrame(Frame):
         group.add(Radiobutton(0, 0, "Easy", variable=level, value="Easy"))
     """
 
-    def __init__(self, x, y, width, height, text="", fg=None, font_name=None,
+    def __init__(self, x, y=0, width=None, height=None, text="", fg=None, font_name=None,
                  font_size=None, **options):
         super().__init__(x, y, width, height, **options)
         self.text = text
@@ -2158,14 +2691,15 @@ class LabelFrame(Frame):
         self.font_name = font_name
         self.font_size = font_size
 
-    def child_offset(self, offset=(0, 0)):
-        x, y = super().child_offset(offset)
-        return (x, y + self._font().get_height() // 2)
+    def _arrange(self):
+        self.top_space = self._font().get_height() // 2 + 2   # room for the title
+        super()._arrange()
 
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
         self._last_offset = offset
+        self._arrange()
         r = self.get_rect(offset)
         font = self._font()
         title = font.render(str(self.text), True, self.cget("fg"))
@@ -2214,7 +2748,7 @@ class Notebook(Container):
 
     takes_focus = True
 
-    def __init__(self, x, y, width, height, tab_height=36, command=None,
+    def __init__(self, x, y=0, width=400, height=300, tab_height=36, command=None,
                  fg=None, bg=None, tab_bg=None, select_bg=None,
                  border_color=None, border_colour=None, border_width=None,
                  font_name=None, font_size=None, center=False, visible=True, style=None):
@@ -2293,6 +2827,7 @@ class Notebook(Container):
         if not self.visible:
             return
         self._last_offset = offset
+        self._arrange()
         r = self.get_rect(offset)
         page = pg.Rect(r.x, r.y + self.tab_height, r.width, r.height - self.tab_height)
         self._draw_box(screen, page)
@@ -2341,7 +2876,7 @@ class Popup(Container):
 
     TITLE_HEIGHT = 40
 
-    def __init__(self, x, y, width, height, title="Popup", fg=None, bg=None,
+    def __init__(self, x, y=0, width=300, height=200, title="Popup", fg=None, bg=None,
                  border_color=None, border_colour=None, border_width=None,
                  dim=True, pad_x=10, pad_y=0, center=False, visible=False, style=None):
         super().__init__(x, y, width, height, bg, _pick(border_color, border_colour),
@@ -2365,6 +2900,7 @@ class Popup(Container):
         if not self.visible:
             return
         self._last_offset = offset
+        self._arrange()
 
         # Darken everything behind the popup
         if self.dim:
@@ -2594,6 +3130,14 @@ class Camera:
         self.offset = pg.Vector2(0, 0)
         self.target = None
         self.smooth = smooth
+        self.shake_offset = pg.Vector2(0, 0)
+        self._shake_until = 0
+        self._shake_strength = 0
+
+    def shake(self, ms=200, strength=6):
+        """Shake the view, e.g. for an explosion or a big hit."""
+        self._shake_until = pg.time.get_ticks() + ms
+        self._shake_strength = strength
 
     def follow(self, target):
         """Follow an object that has a .rect (e.g. a SpriteObject)."""
@@ -2604,6 +3148,12 @@ class Camera:
         Move towards the target. Pass tick so the smoothing is the same
         speed at any frame rate.
         """
+        import random
+        if pg.time.get_ticks() < self._shake_until:
+            s = self._shake_strength
+            self.shake_offset.update(random.uniform(-s, s), random.uniform(-s, s))
+        else:
+            self.shake_offset.update(0, 0)
         if not self.target:
             return
 
@@ -2623,11 +3173,12 @@ class Camera:
 
     def apply(self, rect):
         """Return where a world rect appears on screen."""
-        return rect.move(-self.offset.x, -self.offset.y)
+        return rect.move(-self.offset.x - self.shake_offset.x, -self.offset.y - self.shake_offset.y)
 
     def apply_pos(self, pos):
         """Return where a world (x, y) appears on screen."""
-        return (pos[0] - self.offset.x, pos[1] - self.offset.y)
+        return (pos[0] - self.offset.x - self.shake_offset.x,
+                pos[1] - self.offset.y - self.shake_offset.y)
 
     def screen_to_world(self, pos):
         """Turn a screen position (e.g. the mouse) into a world position."""
@@ -3185,6 +3736,8 @@ class SpriteObject(pg.sprite.Sprite):
         self.visible = True
         self.flip_x = False          # True = face the other way (mirror left / right)
         self.flip_y = False
+        self._flash_until = 0        # see flash() and blink()
+        self._blink_until = 0
 
     def _fit(self, image):
         """Scale the image to the size given when the sprite was made."""
@@ -3213,8 +3766,16 @@ class SpriteObject(pg.sprite.Sprite):
         """Draw the sprite. Pass the camera if the world scrolls."""
         if not self.visible:
             return
+        now = pg.time.get_ticks()
+        if now < self._blink_until and (now // self._blink_rate) % 2:
+            return                                   # blinking: skip every other moment
         r = camera.apply(self.rect) if camera else self.rect
-        screen.blit(self.image, r)
+        if now < self._flash_until:
+            # Draw the sprite's shape filled with one colour
+            mask = pg.mask.from_surface(self.image)
+            screen.blit(mask.to_surface(setcolor=self._flash_color, unsetcolor=(0, 0, 0, 0)), r)
+        else:
+            screen.blit(self.image, r)
 
 
 # ================================
@@ -5141,6 +5702,17 @@ class Body:
         self.touching = set()
         self.facing = "right"
         self._pos = pg.Vector2(sprite.rect.topleft)
+        self.push_velocity = pg.Vector2(0, 0)    # knockback, fades away
+        self.push_friction = 6                   # how quickly a push fades
+
+    def push(self, vx, vy=0):
+        """Shove the body (knockback). It slows down by itself."""
+        self.push_velocity += pg.Vector2(vx, vy)
+
+    def _fade_push(self, dt):
+        self.push_velocity *= max(0, 1 - self.push_friction * dt)
+        if self.push_velocity.length() < 5:
+            self.push_velocity.update(0, 0)
 
     def _sync(self):
         """If something else moved the sprite (e.g. teleport), follow it."""
@@ -5239,6 +5811,8 @@ class TopDownBody(Body):
             else:
                 self.facing = "down" if direction.y > 0 else "up"
         dt = tick / 1000
+        self.velocity += self.push_velocity
+        self._fade_push(dt)
         self.move_and_collide(self.velocity.x * dt, self.velocity.y * dt)
 
 
@@ -5387,6 +5961,12 @@ class PlatformerBody(Body):
             self.velocity.x = target_vx
         if self._move_dir:
             self.facing = "right" if self._move_dir > 0 else "left"
+        # Knockback: sideways push fades, an upward push is a one-off bounce
+        self.velocity.x += self.push_velocity.x
+        if self.push_velocity.y:
+            self.velocity.y = self.push_velocity.y
+            self.push_velocity.y = 0
+        self._fade_push(dt)
 
         # Up / down
         if self.climbing:
@@ -5567,3 +6147,799 @@ class Tooltip:
         box.draw(screen)
         if self.border_color:
             pg.draw.rect(screen, self.border_color, box.get_rect(), 1)
+
+
+# ================================
+# Timers: after(), after_repeat(), Countdown  (like tkinter's root.after)
+# ================================
+
+_timers = {}              # id -> timer details
+_timer_next_id = [1]
+_timer_scene = [None]     # the scene timers belong to (set by Scenes)
+_timer_pause = {"since": None, "total": 0}
+
+
+def _now():
+    """Game time in ms (stops while timers are paused)."""
+    paused = _timer_pause["total"]
+    if _timer_pause["since"] is not None:
+        paused += pg.time.get_ticks() - _timer_pause["since"]
+    return pg.time.get_ticks() - paused
+
+
+def after(ms, function, *args):
+    """
+    Run function(*args) once, ms milliseconds from now. Returns an id.
+        after(2000, spawn_enemy)
+    Needs update_timers() every frame (Scenes does this for you).
+    """
+    timer_id = _timer_next_id[0]
+    _timer_next_id[0] += 1
+    _timers[timer_id] = {"due": _now() + ms, "every": None, "function": function,
+                         "args": args, "times": 1, "scene": _timer_scene[0]}
+    return timer_id
+
+
+def after_repeat(ms, function, *args, times=None):
+    """
+    Run function(*args) every ms milliseconds (forever, or `times` times).
+        blink_id = after_repeat(500, blink)
+    """
+    timer_id = after(ms, function, *args)
+    _timers[timer_id]["every"] = ms
+    _timers[timer_id]["times"] = times
+    return timer_id
+
+
+def after_cancel(timer_id):
+    """Stop a timer made by after() / after_repeat()."""
+    _timers.pop(timer_id, None)
+
+
+def cancel_all_timers(scene=None):
+    """Stop every timer (or only the ones made in one scene)."""
+    for timer_id in [t for t, info in _timers.items() if scene is None or info["scene"] == scene]:
+        del _timers[timer_id]
+
+
+def pause_timers():
+    if _timer_pause["since"] is None:
+        _timer_pause["since"] = pg.time.get_ticks()
+
+
+def resume_timers():
+    if _timer_pause["since"] is not None:
+        _timer_pause["total"] += pg.time.get_ticks() - _timer_pause["since"]
+        _timer_pause["since"] = None
+
+
+def update_timers(tick=0):
+    """Run any timers that are due. Call once per frame (Scenes does it for you)."""
+    if _timer_pause["since"] is not None:
+        return
+    now = _now()
+    for timer_id in list(_timers):
+        info = _timers.get(timer_id)
+        if info is None or now < info["due"]:
+            continue
+        if info["every"]:
+            info["due"] += info["every"]
+            if info["times"] is not None:
+                info["times"] -= 1
+                if info["times"] <= 0:
+                    del _timers[timer_id]
+        else:
+            del _timers[timer_id]
+        info["function"](*info["args"])
+
+
+class Countdown:
+    """
+    A countdown timer, e.g. a 60 second level timer.
+
+        level_timer = Countdown(60000, on_finish=time_up)
+        level_timer.seconds_left()     # 59.2
+        level_timer.text()             # "0:59"
+        level_timer.pause()   level_timer.resume()   level_timer.restart()
+
+    on_finish runs once when it reaches 0 (needs update_timers() / Scenes).
+    """
+
+    def __init__(self, ms, on_finish=None, start=True):
+        self.length = ms
+        self.on_finish = on_finish
+        self.finished = False
+        self._left_when_paused = ms
+        self._end = None
+        self._timer_id = None
+        if start:
+            self.restart()
+
+    def restart(self, ms=None):
+        if ms is not None:
+            self.length = ms
+        self.finished = False
+        self._end = _now() + self.length
+        self._schedule()
+
+    def _schedule(self):
+        if self._timer_id is not None:
+            after_cancel(self._timer_id)
+        self._timer_id = after(max(0, self.time_left()), self._finish)
+
+    def _finish(self):
+        self.finished = True
+        self._timer_id = None
+        if self.on_finish:
+            self.on_finish()
+
+    def time_left(self):
+        """Milliseconds left."""
+        if self._end is None:
+            return self._left_when_paused
+        return max(0, self._end - _now())
+
+    def seconds_left(self):
+        return self.time_left() / 1000
+
+    def fraction_left(self):
+        return 0 if not self.length else self.time_left() / self.length
+
+    def text(self):
+        """Time left as minutes:seconds, e.g. "1:05"."""
+        seconds = int(-(-self.time_left() // 1000))      # round up
+        return f"{seconds // 60}:{seconds % 60:02d}"
+
+    def pause(self):
+        if self._end is not None:
+            self._left_when_paused = self.time_left()
+            self._end = None
+            if self._timer_id is not None:
+                after_cancel(self._timer_id)
+                self._timer_id = None
+
+    def resume(self):
+        if self._end is None and not self.finished:
+            self._end = _now() + self._left_when_paused
+            self._schedule()
+
+    def add_time(self, ms):
+        """Add (or take away, with a negative number) time."""
+        if self._end is None:
+            self._left_when_paused += ms
+        else:
+            self._end += ms
+            self._schedule()
+
+
+# ================================
+# Scenes (menu -> game -> game over)
+# ================================
+
+class Scene:
+    """
+    One screen of your game (menu, level, game over...). Make your own by
+    writing a class with any of these methods:
+
+        class GameOver(Scene):
+            def start(self, score=0):        # runs each time the scene opens
+                self.score = score
+            def handle_event(self, event): ...
+            def update(self, tick): ...
+            def draw(self, screen): ...
+            def stop(self): ...              # runs when leaving the scene
+
+    self.scenes is the Scenes manager, so you can call
+    self.scenes.switch("menu") from inside a scene.
+    """
+
+    scenes = None
+
+    def start(self, **data):
+        pass
+
+    def stop(self):
+        pass
+
+    def handle_event(self, event):
+        pass
+
+    def update(self, tick):
+        pass
+
+    def draw(self, screen):
+        pass
+
+
+class _FunctionScene(Scene):
+    """A Scene made from plain functions (see Scenes.add)."""
+
+    def __init__(self, start=None, handle_event=None, update=None, draw=None, stop=None):
+        self._start, self._handle_event = start, handle_event
+        self._update, self._draw, self._stop = update, draw, stop
+
+    def start(self, **data):
+        if self._start:
+            self._start(**data)
+
+    def stop(self):
+        if self._stop:
+            self._stop()
+
+    def handle_event(self, event):
+        if self._handle_event:
+            self._handle_event(event)
+
+    def update(self, tick):
+        if self._update:
+            self._update(tick)
+
+    def draw(self, screen):
+        if self._draw:
+            self._draw(screen)
+
+
+class Scenes:
+    """
+    Switches between the screens of your game, with optional fades.
+
+    With functions:
+        scenes = Scenes()
+        scenes.add("menu", start=menu_start, handle_event=menu_event,
+                   update=menu_update, draw=menu_draw)
+    With classes:
+        scenes.add("game", GameScene())
+
+    In your game loop:
+        scenes.handle_event(event)     # in handle_inputs()
+        scenes.update(tick)            # in update(tick) - also runs after() timers
+        scenes.draw(screen)            # in draw_game()
+
+    Change scene (data is passed to the new scene's start()):
+        scenes.switch("game_over", transition="fade", ms=500, score=score)
+
+    transition: None, "fade", "slide_left", "slide_right", "slide_up", "slide_down"
+    Timers made with after() inside a scene stop when you leave it.
+    """
+
+    def __init__(self):
+        self.scenes = {}
+        self.current = None
+        self.current_name = None
+        self._transition = None
+
+    def add(self, name, scene=None, start=None, handle_event=None, update=None,
+            draw=None, stop=None):
+        """Add a scene: a Scene object, or functions for each part."""
+        if scene is None:
+            scene = _FunctionScene(start, handle_event, update, draw, stop)
+        scene.scenes = self
+        self.scenes[name] = scene
+        if self.current is None:
+            self._enter(name, {})
+        return scene
+
+    def _enter(self, name, data):
+        if name not in self.scenes:
+            raise ValueError(f"No scene called '{name}'. Scenes: {', '.join(self.scenes)}")
+        if self.current is not None:
+            self.current.stop()
+            cancel_all_timers(scene=self.current_name)
+        self.current_name = name
+        self.current = self.scenes[name]
+        _timer_scene[0] = name
+        self.current.start(**data)
+
+    def switch(self, name, transition=None, ms=400, **data):
+        """Go to another scene, e.g. switch("game", transition="fade", level=2)."""
+        if transition is None or ms <= 0:
+            self._enter(name, data)
+            return
+        self._transition = {"to": name, "data": data, "kind": transition, "ms": ms,
+                            "time": 0, "switched": False, "snapshot": None}
+
+    @property
+    def transitioning(self):
+        return self._transition is not None
+
+    def handle_event(self, event):
+        if self.current is not None and self._transition is None:
+            self.current.handle_event(event)
+
+    def update(self, tick):
+        update_timers(tick)
+        t = self._transition
+        if t is not None:
+            t["time"] += tick
+            if t["kind"] == "fade":
+                if not t["switched"] and t["time"] >= t["ms"] / 2:
+                    self._enter(t["to"], t["data"])
+                    t["switched"] = True
+            elif not t["switched"]:
+                self._enter(t["to"], t["data"])
+                t["switched"] = True
+            if t["time"] >= t["ms"]:
+                self._transition = None
+        if self.current is not None:
+            self.current.update(tick)
+
+    def draw(self, screen):
+        t = self._transition
+        if t is not None and t["kind"] != "fade" and t["snapshot"] is None:
+            # Remember the old scene's picture for sliding
+            t["snapshot"] = screen.copy()
+        if self.current is not None:
+            self.current.draw(screen)
+        if t is None:
+            return
+        progress = min(1, t["time"] / t["ms"])
+        if t["kind"] == "fade":
+            darkness = progress * 2 if progress < 0.5 else (1 - progress) * 2
+            cover = pg.Surface(screen.get_size())
+            cover.fill(BLACK)
+            cover.set_alpha(int(255 * darkness))
+            screen.blit(cover, (0, 0))
+        elif t["snapshot"] is not None:
+            w, h = screen.get_size()
+            move = {"slide_left": (-w, 0), "slide_right": (w, 0),
+                    "slide_up": (0, -h), "slide_down": (0, h)}.get(t["kind"], (-w, 0))
+            old_pos = (move[0] * progress, move[1] * progress)
+            screen.blit(t["snapshot"], old_pos)
+
+
+# ================================
+# Saving and loading
+# ================================
+
+def game_folder():
+    """The folder your game's main .py file is in (save files go here)."""
+    import os
+    import sys
+    main = sys.argv[0] if sys.argv and sys.argv[0] else ""
+    return os.path.dirname(os.path.abspath(main)) if main else os.getcwd()
+
+
+def _save_path(filename):
+    import os
+    return filename if os.path.isabs(filename) else os.path.join(game_folder(), filename)
+
+
+def _plain(value):
+    """Turn Variables (IntVar...) into plain values so they can be saved."""
+    if isinstance(value, Variable):
+        return value.get()
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    return value
+
+
+def save_data(filename, data=None, **values):
+    """
+    Save values to a file next to your game.
+        save_data("save.json", level=3, coins=coins, volume=volume_var)
+    Variables (IntVar etc.) are saved as their values.
+    """
+    import json
+    everything = dict(data or {})
+    everything.update(values)
+    with open(_save_path(filename), "w") as f:
+        json.dump(_plain(everything), f, indent=2)
+
+
+def load_data(filename, default=None):
+    """
+    Load a file saved with save_data(). If it is missing or broken you get
+    `default` instead (the game never crashes because of a save file).
+        data = load_data("save.json", default={"level": 1, "coins": 0})
+    Missing values are filled in from default.
+    """
+    import json
+    result = dict(default or {})
+    try:
+        with open(_save_path(filename)) as f:
+            loaded = json.load(f)
+        if isinstance(loaded, dict):
+            result.update(loaded)
+    except FileNotFoundError:
+        pass
+    except (ValueError, OSError) as error:
+        print(f"Couldn't read {filename} ({error}) - using the default values")
+    return result
+
+
+def save_variables(filename, **variables):
+    """Save Variables, e.g. save_variables("settings.json", volume=volume, music=music_on)."""
+    save_data(filename, **variables)
+
+
+def load_variables(filename, **variables):
+    """Load saved values back into Variables (any that are missing are left alone)."""
+    data = load_data(filename)
+    for name, variable in variables.items():
+        if name in data:
+            variable.set(data[name])
+
+
+class HighScores:
+    """
+    A saved high-score table.
+
+        scores = HighScores("scores.json", keep=10)
+        if scores.is_high_score(score):
+            scores.add(name, score)          # saved straight away
+        for line in scores.table():          # ["1. Sam  120", "2. Alex  95", ...]
+            ...
+        scores.best()                        # ("Sam", 120) or None
+
+    lower_is_better=True for times (e.g. a speed run).
+    """
+
+    def __init__(self, filename="scores.json", keep=10, lower_is_better=False):
+        self.filename = filename
+        self.keep = keep
+        self.lower_is_better = lower_is_better
+        self.scores = [tuple(s) for s in load_data(filename, {"scores": []})["scores"]
+                       if isinstance(s, (list, tuple)) and len(s) == 2]
+        self._sort()
+
+    def _sort(self):
+        self.scores.sort(key=lambda s: s[1], reverse=not self.lower_is_better)
+        del self.scores[self.keep:]
+
+    def is_high_score(self, score):
+        if len(self.scores) < self.keep:
+            return True
+        worst = self.scores[-1][1]
+        return score < worst if self.lower_is_better else score > worst
+
+    def add(self, name, score):
+        """Add a score. Returns its place (1 = top) or None if it didn't make the table."""
+        if not self.is_high_score(score):
+            return None
+        entry = (str(name), score)
+        self.scores.append(entry)
+        self._sort()
+        self.save()
+        return self.scores.index(entry) + 1 if entry in self.scores else None
+
+    def best(self):
+        return self.scores[0] if self.scores else None
+
+    def table(self):
+        return [f"{i}. {name}  {score}" for i, (name, score) in enumerate(self.scores, 1)]
+
+    def clear(self):
+        self.scores = []
+        self.save()
+
+    def save(self):
+        save_data(self.filename, scores=[list(s) for s in self.scores])
+
+
+# ================================
+# Health Class
+# ================================
+
+class Health:
+    """
+    Hit points for anything (player, enemy, crate...).
+
+    Parameters:
+        maximum       - most health
+        value         - starting health (default: full)
+        invincible_ms - after taking damage, ignore more damage for this long
+        on_damage, on_heal, on_death - functions to run (no arguments)
+        bar           - a Progressbar to keep up to date
+        regen_per_second - slowly heal (needs update(tick))
+
+    Example:
+        player.health = Health(100, invincible_ms=800, on_death=game_over, bar=health_bar)
+        player.health.damage(10)
+        if player.health.is_dead(): ...
+    """
+
+    def __init__(self, maximum=100, value=None, invincible_ms=0, on_damage=None,
+                 on_heal=None, on_death=None, bar=None, regen_per_second=0):
+        self.maximum = maximum
+        self.value = maximum if value is None else value
+        self.invincible_ms = invincible_ms
+        self.on_damage = on_damage
+        self.on_heal = on_heal
+        self.on_death = on_death
+        self.bar = bar
+        self.regen_per_second = regen_per_second
+        self._invincible_until = 0
+        self._dead_reported = False
+        self._update_bar()
+
+    def _update_bar(self):
+        if self.bar is not None:
+            self.bar.maximum = self.maximum
+            self.bar.value = self.value
+
+    @property
+    def invincible(self):
+        return pg.time.get_ticks() < self._invincible_until
+
+    def fraction(self):
+        return self.value / self.maximum if self.maximum else 0
+
+    def is_dead(self):
+        return self.value <= 0
+
+    def damage(self, amount):
+        """Take damage. Returns True if it hurt (False while invincible or dead)."""
+        if amount <= 0 or self.invincible or self.is_dead():
+            return False
+        self.value = max(0, self.value - amount)
+        self._invincible_until = pg.time.get_ticks() + self.invincible_ms
+        self._update_bar()
+        if self.on_damage:
+            self.on_damage()
+        if self.is_dead() and not self._dead_reported:
+            self._dead_reported = True
+            if self.on_death:
+                self.on_death()
+        return True
+
+    def heal(self, amount):
+        if self.is_dead() or amount <= 0:
+            return
+        self.value = min(self.maximum, self.value + amount)
+        self._update_bar()
+        if self.on_heal:
+            self.on_heal()
+
+    def reset(self):
+        """Back to full health."""
+        self.value = self.maximum
+        self._dead_reported = False
+        self._invincible_until = 0
+        self._update_bar()
+
+    def make_invincible(self, ms):
+        self._invincible_until = pg.time.get_ticks() + ms
+
+    def update(self, tick):
+        if self.regen_per_second and not self.is_dead() and self.value < self.maximum:
+            self.value = min(self.maximum, self.value + self.regen_per_second * tick / 1000)
+            self._update_bar()
+
+
+# ================================
+# Projectile classes (bullets, arrows, fireballs...)
+# ================================
+
+class Projectile(SpriteObject):
+    """
+    Something that flies in a straight line (a bullet, arrow, fireball).
+    Usually made for you by a Shooter.
+
+    Parameters:
+        x, y      - where it starts (its centre)
+        velocity  - (vx, vy) in pixels per second
+        damage    - how much it hurts
+        lifetime  - milliseconds before it disappears
+        width, height, image, bg - how it looks
+        owner     - who fired it (so it doesn't hit them)
+        pierce    - True: keeps going after hitting something
+        gravity   - pulls it down (pixels per second²), e.g. for arrows / grenades
+        solids    - walls it stops at
+    """
+
+    def __init__(self, x, y, velocity, damage=1, lifetime=2000, width=10, height=4,
+                 image=None, bg=(255, 230, 80), owner=None, pierce=False, gravity=0,
+                 solids=None, rotate=True):
+        super().__init__(0, 0, width, height, image=image, bg=bg)
+        self.velocity = pg.Vector2(velocity)
+        self.damage = damage
+        self.lifetime = lifetime
+        self.owner = owner
+        self.pierce = pierce
+        self.gravity = gravity
+        self.solids = solids or []
+        self.alive = True
+        self.already_hit = set()
+        self._pos = pg.Vector2(x, y)
+        self._base_image = self.image
+        self.rotate = rotate
+        self._turn()
+
+    def _turn(self):
+        """Point the picture the way it is flying."""
+        if self.rotate and self.velocity.length():
+            angle = -self.velocity.as_polar()[1]
+            self.image = pg.transform.rotate(self._base_image, angle)
+        self.rect = self.image.get_rect(center=(round(self._pos.x), round(self._pos.y)))
+
+    def update(self, tick):
+        if not self.alive:
+            return
+        dt = tick / 1000
+        self.velocity.y += self.gravity * dt
+        self._pos += self.velocity * dt
+        self.lifetime -= tick
+        if self.gravity:
+            self._turn()
+        else:
+            self.rect.center = (round(self._pos.x), round(self._pos.y))
+        if self.lifetime <= 0 or any(self.rect.colliderect(_rect_of(s)) for s in self.solids):
+            self.alive = False
+
+
+class Hit:
+    """One projectile hitting one target (from ProjectileGroup.hits)."""
+
+    def __init__(self, projectile, target):
+        self.projectile = projectile
+        self.target = target
+        self.damage = projectile.damage
+
+
+class ProjectileGroup:
+    """
+    Keeps track of projectiles: moves them, removes old ones, finds hits.
+
+        bullets = ProjectileGroup()
+        bullets.update(tick)
+        for hit in bullets.hits(enemies):
+            hit.target.health.damage(hit.damage)
+        bullets.draw(screen, camera)
+    """
+
+    def __init__(self):
+        self.projectiles = []
+
+    def add(self, *projectiles):
+        self.projectiles.extend(projectiles)
+
+    def __iter__(self):
+        return iter(list(self.projectiles))
+
+    def __len__(self):
+        return len(self.projectiles)
+
+    def clear(self):
+        self.projectiles = []
+
+    def update(self, tick):
+        for p in self.projectiles:
+            p.update(tick)
+        self.projectiles = [p for p in self.projectiles if p.alive]
+
+    def hits(self, targets):
+        """
+        Every projectile touching a target (anything with a .rect).
+        Non-piercing projectiles are removed when they hit.
+        Each projectile hits each target only once.
+        """
+        found = []
+        for p in self.projectiles:
+            if not p.alive:
+                continue
+            for target in targets:
+                if target is p.owner or id(target) in p.already_hit:
+                    continue
+                if getattr(target, "visible", True) and p.rect.colliderect(target.rect):
+                    p.already_hit.add(id(target))
+                    found.append(Hit(p, target))
+                    if not p.pierce:
+                        p.alive = False
+                        break
+        self.projectiles = [p for p in self.projectiles if p.alive]
+        return found
+
+    def draw(self, screen, camera=None):
+        for p in self.projectiles:
+            p.draw(screen, camera)
+
+
+class Shooter:
+    """
+    Fires projectiles with a cooldown (a gun, a bow, a wand...).
+
+    Parameters:
+        group     - the ProjectileGroup to add projectiles to
+        cooldown  - smallest time between shots (ms)
+        speed     - projectile speed (pixels per second)
+        damage, lifetime, width, height, image, bg, pierce, gravity, solids
+        spread    - degrees of random wobble
+        count     - projectiles per shot (e.g. 5 for a shotgun)
+        fan       - degrees between projectiles when count > 1
+        owner     - who is shooting (they won't be hit)
+
+    Example:
+        gun = Shooter(bullets, cooldown=200, speed=600, damage=5, owner=player)
+        if mouse.is_pressed("left"):
+            gun.fire(player.rect.center, target=mouse.pos)
+    """
+
+    def __init__(self, group, cooldown=250, speed=500, damage=1, lifetime=2000,
+                 width=10, height=4, image=None, bg=(255, 230, 80), pierce=False,
+                 gravity=0, solids=None, spread=0, count=1, fan=10, owner=None,
+                 sound=None):
+        self.group = group
+        self.cooldown = cooldown
+        self.speed = speed
+        self.damage = damage
+        self.lifetime = lifetime
+        self.size = (width, height)
+        self.image = image
+        self.bg = bg
+        self.pierce = pierce
+        self.gravity = gravity
+        self.solids = solids
+        self.spread = spread
+        self.count = count
+        self.fan = fan
+        self.owner = owner
+        self.sound = sound
+        self._last_shot = -10 ** 9
+
+    def can_fire(self):
+        return pg.time.get_ticks() - self._last_shot >= self.cooldown
+
+    def fire(self, position, direction=None, target=None):
+        """
+        Fire from position, either in a direction like (1, 0) (right) or
+        towards a target point like the mouse. Returns the new projectiles
+        (an empty list if still cooling down).
+        """
+        import random
+        if not self.can_fire():
+            return []
+        if target is not None:
+            direction = pg.Vector2(target) - pg.Vector2(position)
+        direction = pg.Vector2(direction if direction is not None else (1, 0))
+        if direction.length() == 0:
+            direction = pg.Vector2(1, 0)
+        direction = direction.normalize()
+        made = []
+        first = -self.fan * (self.count - 1) / 2
+        for i in range(self.count):
+            angle = first + i * self.fan + random.uniform(-self.spread, self.spread)
+            velocity = direction.rotate(angle) * self.speed
+            made.append(Projectile(position[0], position[1], velocity, self.damage,
+                                   self.lifetime, *self.size, image=self.image, bg=self.bg,
+                                   owner=self.owner, pierce=self.pierce,
+                                   gravity=self.gravity, solids=self.solids))
+        self.group.add(*made)
+        self._last_shot = pg.time.get_ticks()
+        if self.sound is not None:
+            self.sound.play()
+        return made
+
+
+# ================================
+# Effects: flash, blink, knockback (camera.shake is on Camera)
+# ================================
+
+def flash(sprite, ms=120, color=WHITE):
+    """Make a sprite flash a colour for a moment (e.g. when it is hit)."""
+    sprite._flash_until = pg.time.get_ticks() + ms
+    sprite._flash_color = color
+
+
+def blink(sprite, ms=800, rate=80):
+    """Make a sprite flicker on and off (e.g. while invincible)."""
+    sprite._blink_until = pg.time.get_ticks() + ms
+    sprite._blink_rate = rate
+
+
+def knockback(thing, from_pos, strength=300, lift=0):
+    """
+    Push something away from a point (e.g. away from the attacker).
+    thing: a TopDownBody / PlatformerBody (smooth push), or a sprite (instant jump).
+    lift: also bounce it upwards (platformers).
+    """
+    sprite = thing.sprite if isinstance(thing, Body) else thing
+    direction = pg.Vector2(sprite.rect.center) - pg.Vector2(from_pos)
+    if direction.length() == 0:
+        direction = pg.Vector2(1, 0)
+    direction = direction.normalize() * strength
+    if isinstance(thing, Body):
+        thing.push(direction.x, direction.y - lift)
+    else:
+        sprite.rect.move_ip(round(direction.x * 0.05), round(direction.y * 0.05))

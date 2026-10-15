@@ -61,6 +61,15 @@ Animator, Tiled map loading, and soon a Joystick class).
    - Keep the library modular and genre-neutral: building blocks, not
      whole games. Tiled conventions: Classes collision / platform / ladder /
      trigger / enemy; paths are named Polylines / Polygons.
+   - Widgets accept a parent first (`Label(frame, text=...)`) and then need
+     grid / pack / place; Containers arrange children in `_arrange()` (called
+     from draw / handle_event / update). Every layout feature must show up in
+     the F1 debug view (`_draw_layout_debug`) and give clear warnings -
+     layout problems are hard for students to see.
+   - One debug switch: `Debug.on` (F1) for everything.
+   - Timers use game time (`_now()`); Scenes run `update_timers()` and cancel a
+     scene's timers when it ends. Save files go next to the game
+     (`game_folder()`) and loading must never crash.
    - Only `TiledMap` may import pytmx (inside the class).
 6. **Dependencies.** Only `pygame` and `pytmx`. Ask before adding any more.
 7. **Examples.** New features should come with a small runnable example in

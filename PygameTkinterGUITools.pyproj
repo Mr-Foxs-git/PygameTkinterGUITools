@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>f455a13a-f7b3-42d7-99ec-a801e987b2df</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>examples\drag_grid_example.py</StartupFile>
+    <StartupFile>tests\test_layout_scenes_combat.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -48,6 +48,10 @@
     <Compile Include="examples\platformer_example.py" />
     <Compile Include="examples\topdown_ai_example.py" />
     <Compile Include="tests\test_movement.py" />
+    <Compile Include="examples\layout_example.py" />
+    <Compile Include="examples\scenes_example.py" />
+    <Compile Include="examples\shooter_example.py" />
+    <Compile Include="tests\test_layout_scenes_combat.py" />
     <Compile Include="examples\joystick_debug.py" />
     <Compile Include="examples\joystick_move.py" />
     <Compile Include="tests\test_phase_a.py" />

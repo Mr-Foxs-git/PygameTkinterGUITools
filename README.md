@@ -113,6 +113,9 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Drag things with the mouse, inventory slots, item stats | [`drag_grid_example.py`](examples/drag_grid_example.py) |
 | A platformer: gravity, jumping, ladders, enemies | [`platformer_example.py`](examples/platformer_example.py) |
 | Top-down enemies: routes, spotting and chasing the player | [`topdown_ai_example.py`](examples/topdown_ai_example.py) |
+| Lay out menus with grid / pack / place (+ debug view) | [`layout_example.py`](examples/layout_example.py) |
+| Menu -> game -> game over screens, timers, high scores | [`scenes_example.py`](examples/scenes_example.py) |
+| Health, shooting, hit effects, camera shake | [`shooter_example.py`](examples/shooter_example.py) |
 | Animate a character from a sprite sheet | [`animator_example.py`](examples/animator_example.py) |
 | Move a player and collect things | [`sprite_example.py`](examples/sprite_example.py) |
 | Have a world bigger than the screen | [`camera_example.py`](examples/camera_example.py) |
@@ -193,6 +196,14 @@ and move, hide and update with it.
 | `TopDownBody` | Movement with wall collisions for top-down games |
 | `PlatformerBody` | Gravity, jumping, one-way platforms and ladders |
 | `MovingPlatform` | A platform that follows a path and carries the player |
+| `grid()`, `pack()`, `place()`, `Root` | tkinter layout managers, with a debug view (F1) |
+| `Scenes`, `Scene` | Menu, game and game-over screens, with fades and slides |
+| `after()`, `after_repeat()`, `Countdown` | Timers, like tkinter's `root.after` |
+| `save_data()`, `load_data()`, `HighScores` | Save files and high-score tables |
+| `Health` | Hit points, invincibility, death, linked to a Progressbar |
+| `Shooter`, `ProjectileGroup` | Bullets, arrows, shotguns |
+| `flash()`, `blink()`, `knockback()`, `camera.shake()` | Hit effects |
+| `Debug` | F1 turns every debug view on and off |
 | `draw_text()` | Quickly draw text on the screen |
 
 ### Game helpers
@@ -288,6 +299,76 @@ world.draw(screen)              # background, sprites, then foreground
 In Tiled, give objects a **Class** of `collision` or `trigger`, name spawn
 points with "spawn" in the name, and put a layer named "Foreground" in front
 of the player.
+
+### Layout managers (like tkinter)
+Make widgets with their parent first, then grid / pack / place them:
+```python
+root = Root(screen)                         # the whole window, like tk.Tk()
+form = Frame(root)                          # no size = grows to fit
+form.grid(row=0, column=0)
+Label(form, text="Name:").grid(row=0, column=0, sticky="e", padx=5)
+TextBox(form).grid(row=0, column=1, sticky="w")
+Button(form, text="Play", command=play).grid(row=1, column=0, columnspan=2, pady=10)
+form.columnconfigure(1, weight=1)
+
+Button(toolbar, text="Save").pack(side="left", padx=4)
+Button(root, text="?").place(relx=1.0, rely=0.0, anchor="ne")
+
+root.handle_event(event)    root.update(tick)    root.draw(screen)
+```
+**Debug view:** put `Debug.handle_event(event)` in `handle_inputs()` and press
+**F1**. You see every row and column (numbered), padding (yellow), each widget
+with its (row, column) and sticky arrows, and red warnings for common mistakes:
+a widget never gridded, two widgets in one cell, a layout too big for its Frame.
+Hover a widget to see its settings, or call `frame.layout_report()`.
+Unlike tkinter, `grid()` returns the widget, and mixing grid and pack in one
+Frame gives a clear error instead of freezing. `bg=""` makes a Frame see-through.
+
+### Scenes and timers
+```python
+scenes = Scenes()
+scenes.add("menu", start=menu_start, handle_event=menu_event, draw=menu_draw)  # functions
+scenes.add("game_over", GameOver())                                             # or a class
+scenes.switch("game_over", transition="fade", ms=500, score=score)  # data -> start()
+
+# in the game loop
+scenes.handle_event(event)      scenes.update(tick)      scenes.draw(screen)
+
+after(2000, spawn_enemy)                 # once, in 2 seconds
+timer_id = after_repeat(500, blink)      # every half second
+after_cancel(timer_id)
+level_timer = Countdown(60000, on_finish=time_up)     # level_timer.text() -> "0:59"
+```
+`scenes.update()` runs the timers. Without Scenes, call `update_timers()` in
+`update(tick)`. Timers made in a scene stop when you leave it.
+
+### Saving and high scores
+```python
+save_data("save.json", level=3, coins=coins, volume=volume_var)
+data = load_data("save.json", default={"level": 1, "coins": 0})
+scores = HighScores("scores.json", keep=10)
+if scores.is_high_score(score):
+    scores.add(name, score)
+scores.table()      # ["1. Sam  120", ...]
+```
+Files are saved next to your game. Add them to `.gitignore` if you don't
+want them on GitHub. A missing or broken save file never crashes the game.
+
+### Health, shooting and effects
+```python
+player.health = Health(100, invincible_ms=800, on_death=game_over, bar=health_bar)
+player.health.damage(10)
+
+bullets = ProjectileGroup()
+gun = Shooter(bullets, cooldown=150, speed=700, damage=10, owner=player)
+gun.fire(player.rect.center, target=mouse.pos)
+bullets.update(tick)
+for hit in bullets.hits(enemies):
+    hit.target.health.damage(hit.damage)
+    flash(hit.target)
+    knockback(hit.target.body, hit.projectile.rect.center, strength=200)
+camera.shake(200, strength=6)
+```
 
 ### Variables (shared values)
 ```python
