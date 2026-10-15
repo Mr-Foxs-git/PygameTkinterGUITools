@@ -18,11 +18,20 @@ Animator, Tiled map loading, and soon a Joystick class).
    Use docstrings and comments that explain *why*. Avoid advanced Python
    features unless they clearly help students.
 3. **tkinter-like API.** Keep names and parameters close to tkinter.
-4. **Student access status: NOT YET RELEASED.** Students have not used the
-   library yet, so classes may be refactored freely for consistency.
-   Once Adam says students have access, change this rule: from then on avoid
-   renaming or removing public classes, methods or parameters; keep old names
-   working (with a deprecation note) and document changes.
+4. **Student access status: RELEASED (v1.0, commit 87bf876).** Students now
+   use the library, so every change must stay backwards compatible with v1.0:
+   - Never rename or remove a public class, function, method, parameter,
+     option or attribute. To rename, add the new name and keep the old one
+     working as an alias with a deprecation note in its docstring.
+   - Keep parameter order and defaults; add new parameters only as keyword
+     arguments with defaults that keep the old behaviour.
+   - Don't change what existing code does or how it looks by default (new
+     looks/behaviour must be opt-in), and keep save file formats loadable.
+   - All existing tests and examples must still pass unchanged; add a test
+     when old names or behaviour are kept on purpose.
+   - Record every change in the README (changelog / Differences table) and
+     flag any risk to student code in the plan (rule 1).
+
 5. **Consistency.** Follow the shared design:
    - GUI widgets subclass `Widget` (containers subclass `Container`) and take
      position first: `Label(x, y, text)`, `Button(x, y, width, height, text)`.
