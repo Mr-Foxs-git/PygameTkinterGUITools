@@ -11,6 +11,10 @@ import pygame as pg
 # Lets this example find the library one folder up.
 # In your own game, just put PygameTkinterGUITools.py next to your game file.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+from PygameTkinterGUITools import *
+
+
 from PygameTkinterGUITools import Button, Label
 
 # ---------- Settings ----------

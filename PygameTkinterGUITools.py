@@ -3932,7 +3932,7 @@ class LabelFrame(Frame):
         self.font_size = font_size
 
     def _arrange(self):
-        self.top_space = self._font().get_height() // 2 + 2   # room for the title
+        self.top_space = self._font().get_height() // 2 + 8   # room for the title
         super()._arrange()
 
     def draw(self, screen, offset=(0, 0)):

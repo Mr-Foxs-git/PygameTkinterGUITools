@@ -4,13 +4,14 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>f455a13a-f7b3-42d7-99ec-a801e987b2df</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>examples\chain_example.py</StartupFile>
+    <StartupFile>examples\particles_example.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
     <Name>PygameTkinterGUITools</Name>
     <RootNamespace>PygameTkinterGUITools</RootNamespace>
+    <SuppressConfigureTestFrameworkPrompt>true</SuppressConfigureTestFrameworkPrompt>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -21,6 +22,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="docs\make_guide_pictures.py" />
     <Compile Include="PygameTkinterGUITools.py" />
     <Compile Include="examples\_template.py" />
     <Compile Include="examples\animator_example.py" />
@@ -64,6 +66,8 @@
     <Compile Include="tests\test_phase_b.py" />
   </ItemGroup>
   <ItemGroup>
+    <Folder Include="docs\" />
+    <Folder Include="docs\__pycache__\" />
     <Folder Include="examples\" />
     <Folder Include="tests\" />
     <Folder Include="examples\assets\" />
@@ -71,6 +75,8 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="CLAUDE.md" />
+    <Content Include="docs\PygameTkinterGUITools_CheatSheet.docx" />
+    <Content Include="docs\__pycache__\make_guide_pictures.cpython-310.pyc" />
     <Content Include="README.md" />
     <Content Include="requirements.txt" />
     <Content Include="examples\assets\button.png" />
