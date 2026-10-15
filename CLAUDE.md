@@ -6,6 +6,11 @@ widgets (Button, Label, Frame, ...). It also contains game helpers (cameras,
 Animator, Tiled map loading, and soon a Joystick class).
 
 ## Rules
+0. **Improve on tkinter, openly.** When planning a tkinter-style feature,
+   point out tkinter quirks that confuse students or make code harder, and
+   suggest a clearer behaviour. Only build an improvement once Adam approves
+   it, and always add it to the "Differences from tkinter" table in README.md
+   (what tkinter does, what this library does, why).
 1. **Plan before coding.** Before changing code, write a clear plan (what,
    why, which classes/methods, any effect on existing student code) and wait
    for the teacher's (Adam's) approval.
@@ -70,6 +75,14 @@ Animator, Tiled map loading, and soon a Joystick class).
    - Timers use game time (`_now()`); Scenes run `update_timers()` and cancel a
      scene's timers when it ends. Save files go next to the game
      (`game_folder()`) and loading must never crash.
+   - Popups that sit on top (Combobox lists, Menus, context menus) must take
+     events first and be drawn last; menus take clicks while open so they
+     never reach the game underneath.
+   - Particles: every ParticleEmitter registers itself with `Particles`, so a
+     game only needs `Particles.update(tick)` and `Particles.draw(screen)`.
+     Presets are plain emitters with settings (students copy and change them).
+   - Chain is generic (snakes, followers, trains, trails): keep both modes
+     ("path" and "grid") sharing the same methods.
    - Only `TiledMap` may import pytmx (inside the class).
 6. **Dependencies.** Only `pygame` and `pytmx`. Ask before adding any more.
 7. **Examples.** New features should come with a small runnable example in

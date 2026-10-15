@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>f455a13a-f7b3-42d7-99ec-a801e987b2df</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>tests\test_layout_scenes_combat.py</StartupFile>
+    <StartupFile>examples\chain_example.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -52,6 +52,11 @@
     <Compile Include="examples\scenes_example.py" />
     <Compile Include="examples\shooter_example.py" />
     <Compile Include="tests\test_layout_scenes_combat.py" />
+    <Compile Include="examples\scrolled_table_menu_example.py" />
+    <Compile Include="examples\particles_example.py" />
+    <Compile Include="examples\chain_example.py" />
+    <Compile Include="examples\snake_example.py" />
+    <Compile Include="tests\test_scroll_table_menu_particles_chain.py" />
     <Compile Include="examples\joystick_debug.py" />
     <Compile Include="examples\joystick_move.py" />
     <Compile Include="tests\test_phase_a.py" />
@@ -96,6 +101,9 @@
     <Content Include="examples\assets\bat_sheet.png" />
     <Content Include="examples\assets\ghost_sheet.png" />
     <Content Include="examples\assets\platformer.tmx" />
+    <Content Include="examples\assets\snake_sheet.png" />
+    <Content Include="examples\assets\apple.png" />
+    <Content Include="examples\assets\snake_grass.png" />
     <Content Include="examples\assets\coin.png" />
     <Content Include="examples\assets\coin_sheet.png" />
     <Content Include="examples\assets\level1.tmx" />

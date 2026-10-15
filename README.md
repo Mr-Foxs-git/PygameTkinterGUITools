@@ -116,6 +116,10 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Lay out menus with grid / pack / place (+ debug view) | [`layout_example.py`](examples/layout_example.py) |
 | Menu -> game -> game over screens, timers, high scores | [`scenes_example.py`](examples/scenes_example.py) |
 | Health, shooting, hit effects, camera shake | [`shooter_example.py`](examples/shooter_example.py) |
+| Menu bar, right-click menu, editable table, tree view, scrolling list | [`scrolled_table_menu_example.py`](examples/scrolled_table_menu_example.py) |
+| Explosions, fire, smoke, rain, snow, sparks... | [`particles_example.py`](examples/particles_example.py) |
+| Things following a leader (worms, party members, trains, trails) | [`chain_example.py`](examples/chain_example.py) |
+| A complete Snake game | [`snake_example.py`](examples/snake_example.py) |
 | Animate a character from a sprite sheet | [`animator_example.py`](examples/animator_example.py) |
 | Move a player and collect things | [`sprite_example.py`](examples/sprite_example.py) |
 | Have a world bigger than the screen | [`camera_example.py`](examples/camera_example.py) |
@@ -204,6 +208,11 @@ and move, hide and update with it.
 | `Shooter`, `ProjectileGroup` | Bullets, arrows, shotguns |
 | `flash()`, `blink()`, `knockback()`, `camera.shake()` | Hit effects |
 | `Debug` | F1 turns every debug view on and off |
+| `ScrolledFrame` | A Frame whose contents scroll |
+| `Table` | Rows and columns (like ttk.Treeview): sorting, editable cells, tree view |
+| `Menu` | Menu bars, sub-menus and right-click menus, with working shortcuts |
+| `ParticleEmitter`, `Particles` | Particle effects, with ready-made presets |
+| `Chain` | Things that follow a leader - snakes, worms, followers, trains, trails |
 | `draw_text()` | Quickly draw text on the screen |
 
 ### Game helpers
@@ -368,6 +377,61 @@ for hit in bullets.hits(enemies):
     flash(hit.target)
     knockback(hit.target.body, hit.projectile.rect.center, strength=200)
 camera.shake(200, strength=6)
+```
+
+### ScrolledFrame, Table and Menu
+```python
+levels = ScrolledFrame(root, width=250, height=300)        # visible size
+Button(levels, text="Level 1").grid(row=0, column=0)       # add as many as you like
+
+items = Table(root, columns=["Item", "Damage"], rows=8, editable=["Damage"], on_edit=changed)
+items.column("Damage", type=int, anchor="e")               # numbers only when editing
+row = items.insert(["Sword", 7])
+items.get_selected()        # ["Sword", 7]
+world = levels_tree.insert(["World 1"], open=True)          # Table(..., tree=True)
+levels_tree.insert(["Level 1-1"], parent=world)
+
+menubar = Menu(root)
+file_menu = Menu(menubar)
+file_menu.add_command(label="Save", command=save, accelerator="Ctrl+S")   # shortcut works
+menubar.add_cascade(label="File", menu=file_menu)
+root.config(menu=menubar)
+
+context = Menu()                       # right-click menu
+context.post(*mouse.pos)               # open it; handle_event first, draw last
+```
+Click a heading to sort. Double-click an editable cell (or Enter) to type;
+Enter saves, Tab moves on, Escape cancels.
+
+### Particles
+```python
+Particles.explosion(pos)     Particles.sparks(pos)     Particles.dust(pos)
+smoke = Particles.smoke(follow=chimney)     # keeps going until smoke.stop()
+Particles.update(tick)                      # once, in update(tick)
+Particles.draw(screen, camera)              # once, in draw_game()
+
+bubbles = ParticleEmitter(pos=(400, 580), rate=25, lifetime=(2000, 3500),
+                          speed=(30, 80), angle=-90, spread=25, gravity=-20,
+                          size=(6, 16), color=[(180, 230, 255), (120, 180, 255)],
+                          alpha=(200, 0))
+bubbles.burst(50)
+```
+Any setting can be a (low, high) range. `color` can be a list to fade through.
+Shapes: `"circle"`, `"square"`, `"line"` or an image. `glow=True` for fire and magic.
+
+### Chain (snakes, followers, trains...)
+```python
+worm = Chain(head, count=12, spacing=14, size=20, shrink=True)
+party = Chain(hero, segments=[elf, dwarf], delay_ms=300)    # real sprites follow
+party.attach(new_friend)
+worm.update(tick)    worm.draw(screen)
+
+snake = Chain(mode="grid", grid=board, head_cell=(5, 5), length=3,
+              move_every=120, images="snake_sheet.png")
+snake.turn("left")                      # queued - quick presses aren't lost
+if snake.moved and snake.head_cell == food: snake.grow()
+if snake.hits_self() or snake.hits_wall(): game_over()
+food = random.choice(snake.free_cells())
 ```
 
 ### Variables (shared values)
@@ -559,6 +623,35 @@ speed_x = pad.get_axis("move_x")         # -1.0 to 1.0
 ```
 
 See [`examples/joystick_move.py`](examples/joystick_move.py) for a full game.
+
+## Differences from tkinter
+
+The library copies tkinter's names and ideas, but changes a few things that
+often trip students up. Everything here is deliberate.
+
+| Feature | tkinter | This library | Why |
+|---|---|---|---|
+| `grid()` / `pack()` / `place()` | return `None`, so `b = Button(...).grid()` makes `b` None | return the widget | removes a very common bug |
+| Mixing `grid()` and `pack()` in one Frame | program freezes | stops with an error naming **your** file and line | the mistake is easy to find |
+| Widget made in a Frame but never gridded | silently doesn't appear | doesn't appear, **and** a warning says which widget | no more "where did my button go?" |
+| Seeing the layout | not possible | **F1** debug view: rows, columns, padding, sticky, warnings | layout problems become visible |
+| Menu `accelerator="Ctrl+S"` | only text - you must bind the key yourself | the shortcut really works (`accelerators=False` to turn off) | less code to write |
+| Scale `command` | called with the new value as a string | called with no arguments (read the Variable) | every `command` works the same way |
+| `variable.trace_add("write", f)` | `f` gets 3 confusing arguments | `f()` gets none | simpler functions |
+| Entry: run code on Enter | needs `entry.bind("<Return>", ...)` | `TextBox(..., on_enter=function)` | one option instead of an event binding |
+| Scroll bars on lists | a separate `Scrollbar` you connect yourself | built into Listbox, Table and ScrolledFrame | works straight away |
+| Scrolling a whole Frame | needs a Canvas + Frame trick | `ScrolledFrame` | one widget |
+| Editing cells in a Treeview | not possible | `Table(..., editable=[...])` with number checks | spreadsheet-style tables |
+| `Notebook` tabs | make a Frame, then `add()` it | also `notebook.new_tab("Sound")` (returns the Frame) | one line per tab |
+| Pop-up messages | `messagebox` stops the program until closed | `Popup` doesn't stop the game loop | games keep running |
+| Colour option names | `color` only in some places, `fg` / `bg` mostly | `fg` / `bg` everywhere, and `color` **or** `colour` | consistent, and Australian spelling works |
+| See-through Frame | not possible | `bg=""` | layouts over a game background |
+| Frames and size | shrink to fit their contents | grow to fit when no `width` / `height` is given | the same idea, but you can also fix the size |
+| Style changes | `ttk.Style` | `Style()` - also changes widgets that already exist | live theme switching |
+
+**Things tkinter has that this library doesn't (yet):** typing into a
+Combobox (it is choose-only), multi-line text editing (`Text`), and
+`Canvas` drawing items.
 
 ## Example art
 
