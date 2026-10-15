@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>f455a13a-f7b3-42d7-99ec-a801e987b2df</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>examples\button_example.py</StartupFile>
+    <StartupFile>tests\test_table_popup_messagebox.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -64,6 +64,8 @@
     <Compile Include="tests\test_phase_a.py" />
     <Compile Include="tests\test_joystick.py" />
     <Compile Include="tests\test_phase_b.py" />
+    <Compile Include="examples\shop_editor_example.py" />
+    <Compile Include="tests\test_table_popup_messagebox.py" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="docs\" />

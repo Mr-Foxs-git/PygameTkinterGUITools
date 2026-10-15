@@ -227,7 +227,7 @@ THEMES = {
                  "select_bg": (100, 150, 255), "select_fg": WHITE, "font_size": 22},
         "Notebook": {"bg": (60, 60, 60), "tab_bg": (90, 90, 90), "border_width": 2},
         "Popup": {"fg": BLACK, "bg": (240, 240, 240), "border_color": BLACK,
-                  "border_width": 2},
+                  "border_width": 2, "title_font_size": 24, "title_font_name": None},
     },
     "dark": {
         ".": {"fg": (230, 230, 240), "bg": (40, 40, 50), "border_color": (90, 90, 110),
@@ -2975,7 +2975,23 @@ class Table(Widget):
         on_edit   - function to run after a cell is changed (see table.last_edit)
         tree      - True: show open / close arrows for rows inside rows
         striped   - True: every other row is a little darker
-        fg, bg, select_fg, select_bg, heading_bg, font_name, font_size, style
+        edit_mode - "double_click" (default): double-click a cell to edit it
+                    "spreadsheet": click a cell to pick it, then just type
+                    (see below)
+        fg, bg, select_fg, select_bg, heading_bg, border_color, font_name,
+        font_size, style
+
+    Spreadsheet mode (edit_mode="spreadsheet"), like Excel:
+        click a cell        pick it (it gets a yellow outline)
+        type                replace what is in the cell
+        double-click        edit the text that is already there
+        Enter or F2         edit the text that is already there
+        Enter (editing)     save and move down
+        Tab                 save and move right
+        arrow keys          move to another cell (saves first if editing)
+        Escape              stop editing without saving / let go of the cell
+        Delete              empty the cell
+    Only editable columns can be picked.
 
     Methods (like Treeview): insert, delete, item, set, get, clear, load,
     get_children, selection, selection_set, see, heading, column, sort_by
@@ -2987,7 +3003,8 @@ class Table(Widget):
                  editable=False, on_edit=None, tree=False, striped=True,
                  fg=None, bg=None, select_fg=None, select_bg=None, heading_bg=None,
                  font_name=None, font_size=None, center=False, visible=True,
-                 state="normal", style=None):
+                 state="normal", style=None, border_color=None, border_colour=None,
+                 edit_mode="double_click"):
         super().__init__(x, y, center=center, visible=visible, style=style, state=state)
         self.columns = list(columns)
         self.rows = rows
@@ -3001,8 +3018,13 @@ class Table(Widget):
         self.select_fg = select_fg
         self.select_bg = select_bg
         self.heading_bg = heading_bg
+        self.border_color = _pick(border_color, border_colour)
         self.font_name = font_name
         self.font_size = font_size
+        if edit_mode not in ("double_click", "spreadsheet"):
+            raise ValueError('edit_mode must be "double_click" or "spreadsheet"')
+        self.edit_mode = edit_mode
+        self.cell = None             # (row, column) picked in spreadsheet mode
         self.settings = {name: {"width": None, "anchor": "w", "type": None, "check": None,
                                 "editable": editable is True or
                                 (isinstance(editable, (list, tuple)) and name in editable),
@@ -3252,6 +3274,13 @@ class Table(Widget):
 
     def _edit_key(self, event):
         e = self.editing
+        if self.edit_mode == "spreadsheet" and event.key in (
+                pg.K_RETURN, pg.K_KP_ENTER, pg.K_UP, pg.K_DOWN):
+            # Spreadsheet: save, then move (Enter goes down like Excel)
+            row, column = e["row"], e["column"]
+            if self._finish_edit(True):
+                self._move_cell(row, column, "up" if event.key == pg.K_UP else "down")
+            return True
         if event.key in (pg.K_RETURN, pg.K_KP_ENTER):
             self._finish_edit(True)
         elif event.key == pg.K_ESCAPE:
@@ -3262,13 +3291,72 @@ class Table(Widget):
                 row, column = self._next_editable(row, column)
                 if row is not None:
                     self.selection_set(row)
-                    self.start_edit(row, column)
+                    if self.edit_mode == "spreadsheet":
+                        self.cell = (row, column)    # pick it, typing replaces
+                    else:
+                        self.start_edit(row, column)
         elif event.key == pg.K_BACKSPACE:
             e["text"] = e["text"][:-1]
         elif event.unicode and event.unicode.isprintable():
             e["text"] += event.unicode
         self.edit_error = None if event.key not in (pg.K_RETURN, pg.K_TAB, pg.K_KP_ENTER) \
             else self.edit_error
+        return True
+
+    # ---- spreadsheet mode ----
+    def _editable_columns(self):
+        return [c for c in self.columns if self.settings[c]["editable"]]
+
+    def _pick_cell(self, row, column):
+        """Spreadsheet mode: make (row, column) the picked cell."""
+        self.cell = (row, column)
+        if self.selected != row:
+            self.selected = row
+            if self.command:
+                self.command()
+        self.see(row)
+
+    def _move_cell(self, row, column, direction):
+        """Move the picked cell up / down / left / right (stops at the edges)."""
+        rows = [i for i, d in self._visible_rows()]
+        cols = self._editable_columns()
+        if row not in rows or column not in cols:
+            return
+        r, c = rows.index(row), cols.index(column)
+        if direction == "up":
+            r = max(0, r - 1)
+        elif direction == "down":
+            r = min(len(rows) - 1, r + 1)
+        elif direction == "left":
+            c = max(0, c - 1)
+        elif direction == "right":
+            c = min(len(cols) - 1, c + 1)
+        self._pick_cell(rows[r], cols[c])
+
+    def _cell_key(self, event):
+        """Spreadsheet mode: a key pressed while a cell is picked (not editing)."""
+        row, column = self.cell
+        arrows = {pg.K_UP: "up", pg.K_DOWN: "down", pg.K_LEFT: "left", pg.K_RIGHT: "right"}
+        if event.key in arrows:
+            self._move_cell(row, column, arrows[event.key])
+        elif event.key == pg.K_TAB:
+            row, column = self._next_editable(row, column)
+            if row is not None:
+                self._pick_cell(row, column)
+        elif event.key in (pg.K_RETURN, pg.K_KP_ENTER, pg.K_F2):
+            self.start_edit(row, column)                 # keep the old text
+        elif event.key == pg.K_ESCAPE:
+            self.cell = None
+        elif event.key == pg.K_DELETE:
+            if self.start_edit(row, column):
+                self.editing["text"] = ""
+                if not self._finish_edit(True):          # e.g. an int column
+                    self._finish_edit(False)
+        elif event.unicode and event.unicode.isprintable():
+            if self.start_edit(row, column):
+                self.editing["text"] = event.unicode     # typing replaces the cell
+        else:
+            return False
         return True
 
     # ---- where things are ----
@@ -3342,6 +3430,11 @@ class Table(Widget):
             return False
         if self.editing and event.type == pg.KEYDOWN:
             return self._edit_key(event)
+        if self.cell and event.type == pg.KEYDOWN:
+            if self.cell[0] not in self.items:           # its row was deleted
+                self.cell = None
+            elif self._cell_key(event):
+                return True
         r = self.get_rect(offset)
         bar = self._table_scrollbar(r)
         if bar and _scrollbar_event(self, event, *bar, self.rows, len(self._visible_rows())):
@@ -3353,6 +3446,8 @@ class Table(Widget):
         if not _clicked(event, r):
             if event.type == pg.MOUSEBUTTONDOWN and self.editing:
                 self._finish_edit(True)               # clicking elsewhere saves
+            if event.type == pg.MOUSEBUTTONDOWN:
+                self.cell = None                      # and lets go of the cell
             return False
         hit = self._cell_at(event.pos, offset)
         if hit is None:
@@ -3373,6 +3468,18 @@ class Table(Widget):
         arrow_x = xs[0] + depth * 20
         if self.tree and self.items[row]["children"] and arrow_x <= event.pos[0] < arrow_x + 20:
             self.open(row, not self.items[row]["open"])
+            return True
+        # Spreadsheet mode: one click picks an editable cell
+        # (and a second click on it within 0.4 seconds - a double-click - edits it)
+        if self.edit_mode == "spreadsheet" and column and self.settings[column]["editable"]:
+            now = pg.time.get_ticks()
+            last_time, last_row, last_col = self._last_click
+            self._last_click = (now, row, column)
+            if self.cell == (row, column) and last_row == row and last_col == column \
+                    and now - last_time < 400:
+                self.start_edit(row, column)             # keep the old text
+            else:
+                self._pick_cell(row, column)
             return True
         # Double click = edit
         now = pg.time.get_ticks()
@@ -3456,6 +3563,8 @@ class Table(Widget):
                             points = [(cx - 3, cy - 5), (cx - 3, cy + 5), (cx + 4, cy)]
                         pg.draw.polygon(screen, colour, points)
                     left += 16
+                if self.cell == (row_id, name) and not self.editing:
+                    pg.draw.rect(screen, self.cget("focus_color"), cell, 2)
                 editing_here = self.editing and self.editing["row"] == row_id and \
                     self.editing["column"] == name
                 if editing_here:
@@ -4100,6 +4209,7 @@ class Popup(Container):
         x, y, width, height - position and size
         title         - words in the title bar
         fg            - title colour
+        title_font_size, title_font_name - the title's text (default 24)
         bg            - window colour
         border_color  - border colour (border_colour also works)
         border_width  - border thickness
@@ -4118,12 +4228,15 @@ class Popup(Container):
 
     def __init__(self, x, y=0, width=300, height=200, title="Popup", fg=None, bg=None,
                  border_color=None, border_colour=None, border_width=None,
-                 dim=True, pad_x=10, pad_y=0, center=False, visible=False, style=None):
+                 dim=True, pad_x=10, pad_y=0, center=False, visible=False, style=None,
+                 title_font_size=None, title_font_name=None):
         super().__init__(x, y, width, height, bg, _pick(border_color, border_colour),
                          border_width, pad_x, pad_y, center, visible, style)
         self.title = title
         self.fg = fg
         self.dim = dim
+        self.title_font_size = title_font_size
+        self.title_font_name = title_font_name
         self.top_space = self.TITLE_HEIGHT
         self.close_button = Button(width - 30, 10, 20, 20, "X", command=self.hide,
                                    fg=WHITE, bg=(200, 60, 60), hover_bg=(255, 80, 80),
@@ -4140,6 +4253,7 @@ class Popup(Container):
         if not self.visible:
             return
         self._last_offset = offset
+        self.top_space = self._title_space()
         self._arrange()
 
         # Darken everything behind the popup
@@ -4150,9 +4264,195 @@ class Popup(Container):
 
         r = self.get_rect(offset)
         self._draw_box(screen, r, radius=10)
-        draw_text(screen, self.title, r.x + 10, r.y + 10, fg=self.cget("fg"))
+        draw_text(screen, self.title, r.x + 10, r.y + 10, fg=self.cget("fg"),
+                  font_size=self.cget("title_font_size"),
+                  font_name=self.cget("title_font_name"))
         self.draw_children(screen, offset)
         self.close_button.draw(screen, r.topleft)
+
+    def _title_space(self):
+        """Height of the title bar: 40 pixels, or more for a big title font."""
+        font = get_font(self.cget("title_font_name"), self.cget("title_font_size"))
+        return max(self.TITLE_HEIGHT, font.get_height() + 20)
+
+
+# ================================
+# MessageBox (like tkinter's messagebox)
+# ================================
+
+def _call_with_answer(function, answer):
+    """Run a command: give it the answer if it takes one, otherwise call it with ()."""
+    import inspect
+    try:
+        wants_answer = len(inspect.signature(function).parameters) > 0
+    except (TypeError, ValueError):
+        wants_answer = True
+    if wants_answer:
+        function(answer)
+    else:
+        function()
+
+
+class MessageBox(Popup):
+    """
+    A ready-made question box: a message and a row of buttons
+    (like tkinter's messagebox).
+
+    tkinter's messagebox.askyesno() STOPS your program until the player
+    answers. A game can't stop (the screen would freeze), so here the answer
+    is given to your command function instead:
+
+        def quit_answer(answer):          # answer is "Yes", "No" or "Cancel"
+            if answer == "Yes":
+                pg.quit()
+                sys.exit()
+
+        quit_box = MessageBox("Quit?", "Do you really want to quit?",
+                              buttons=("Yes", "No", "Cancel"), command=quit_answer)
+        quit_box.show()                   # open it (e.g. when Escape is pressed)
+        quit_box.handle_event(event)      # FIRST in handle_inputs()
+        quit_box.draw(screen)             # LAST in draw_game()
+
+    The answer is the text of the button clicked, or None if the box was
+    closed with X or Escape. Enter presses the first button. A command with
+    no answer (def quit_answer():) also works - read quit_box.result.
+    While it is open it takes every click and key, so the game underneath
+    doesn't react.
+
+    Shortcuts that answer like tkinter (True / False / None):
+        askyesno(title, message, command)        True / False
+        askyesnocancel(title, message, command)  True / False / None
+        askokcancel(title, message, command)     True / False
+        showinfo(title, message, command=None)   "ok"
+    They open the box straight away and return it - keep it, then
+    handle_event and draw it like above.
+
+    Parameters:
+        title    - words in the title bar
+        message  - the question (it wraps onto new lines)
+        buttons  - the button words, e.g. ("OK",) or ("Yes", "No")
+        command  - function to run with the answer
+        x, y     - centre of the box (None = the middle of the window)
+        width    - width in pixels (the height fits the message)
+        plus every Popup option (fg, bg, border_color, title_font_size, ...)
+    """
+
+    BUTTON_HEIGHT = 40
+
+    def __init__(self, title="Message", message="", buttons=("OK",), command=None,
+                 x=None, y=None, width=380, font_size=None, **popup_options):
+        popup_options.setdefault("pad_x", 16)
+        super().__init__(x or 0, y or 0, width, 100, title, center=True, **popup_options)
+        self.message = message
+        self.command = command
+        self.font_size = font_size
+        self.result = None
+        self._auto_place = x is None or y is None
+        self.close_button.command = lambda: self._answer(None)
+        self.text = Message(0, 0, message, width=width - 2 * self.pad_x,
+                            font_size=font_size, padding=0)
+        self.buttons = [Button(0, 0, 10, self.BUTTON_HEIGHT, word, font_size=24,
+                               command=lambda word=word: self._answer(word))
+                        for word in buttons]
+        self._place_parts()
+
+    def _place_parts(self):
+        """Size the box to fit the message, and put the buttons along the bottom."""
+        self.text.config(text=self.message, fg=self.cget("fg"))
+        gap = 10
+        space = self.width - 2 * self.pad_x
+        button_width = (space - gap * (len(self.buttons) - 1)) // max(1, len(self.buttons))
+        self.top_space = self._title_space()
+        top = self.top_space + 10
+        button_y = top + self.text.height + 20
+        for i, button in enumerate(self.buttons):
+            button.x = self.pad_x + i * (button_width + gap)
+            button.y = button_y
+            if button.width != button_width:
+                button.config(width=button_width)
+        self.text.x, self.text.y = self.pad_x, top
+        self.height = button_y + self.BUTTON_HEIGHT + 16
+
+    def show(self, message=None):
+        """Open the box (optionally with a new message)."""
+        if message is not None:
+            self.message = message
+        self.result = None
+        super().show()
+
+    def _answer(self, answer):
+        self.result = answer
+        self.hide()
+        if self.command:
+            _call_with_answer(self.command, answer)
+
+    def _place_on_screen(self):
+        if self._auto_place and pg.display.get_surface():
+            self.x, self.y = pg.display.get_surface().get_rect().center
+
+    def handle_event(self, event, offset=(0, 0)):
+        if not self.visible:
+            return False
+        self._place_on_screen()
+        self._place_parts()
+        if event.type == pg.KEYDOWN:
+            if event.key == pg.K_ESCAPE:
+                self._answer(None)
+            elif event.key in (pg.K_RETURN, pg.K_KP_ENTER) and self.buttons:
+                self._answer(self.buttons[0].text)
+            return True                       # keys don't reach the game
+        corner = self.get_rect(offset).topleft
+        if self.close_button.handle_event(event, corner):
+            return True
+        for button in self.buttons:
+            if button.handle_event(event, corner):
+                return True
+        # Clicks anywhere else are used up too, so the game underneath is safe
+        return event.type in (pg.MOUSEBUTTONDOWN, pg.MOUSEBUTTONUP, pg.MOUSEWHEEL)
+
+    def draw(self, screen, offset=(0, 0)):
+        if not self.visible:
+            return
+        self._place_on_screen()
+        self._place_parts()
+        super().draw(screen, offset)
+        corner = self.get_rect(offset).topleft
+        self.text.draw(screen, corner)
+        for button in self.buttons:
+            button.draw(screen, corner)
+
+
+def _ask(title, message, buttons, answers, command, **options):
+    """Make a MessageBox whose answers are turned into True / False / None."""
+    def answer(word):
+        if command:
+            _call_with_answer(command, answers.get(word))
+    box = MessageBox(title, message, buttons=buttons, command=answer, **options)
+    box.show()
+    return box
+
+
+def askyesno(title, message, command=None, **options):
+    """Yes / No box. command gets True (Yes) or False (No / closed)."""
+    return _ask(title, message, ("Yes", "No"), {"Yes": True, "No": False, None: False},
+                command, **options)
+
+
+def askyesnocancel(title, message, command=None, **options):
+    """Yes / No / Cancel box. command gets True, False or None (Cancel / closed)."""
+    return _ask(title, message, ("Yes", "No", "Cancel"),
+                {"Yes": True, "No": False, "Cancel": None, None: None}, command, **options)
+
+
+def askokcancel(title, message, command=None, **options):
+    """OK / Cancel box. command gets True (OK) or False (Cancel / closed)."""
+    return _ask(title, message, ("OK", "Cancel"), {"OK": True, "Cancel": False, None: False},
+                command, **options)
+
+
+def showinfo(title, message, command=None, **options):
+    """A message with an OK button. command (if given) gets "ok"."""
+    return _ask(title, message, ("OK",), {"OK": "ok", None: "ok"}, command, **options)
 
 
 # ================================

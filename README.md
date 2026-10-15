@@ -101,6 +101,7 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Let the player type (e.g. their name) | [`textbox_example.py`](examples/textbox_example.py) |
 | Make a menu that shows / hides | [`frame_example.py`](examples/frame_example.py) |
 | Show a pop-up message (Game Over...) | [`popup_example.py`](examples/popup_example.py) |
+| Ask Yes / No / Cancel, edit a table like a spreadsheet | [`shop_editor_example.py`](examples/shop_editor_example.py) |
 | Tick boxes and "choose one" options | [`checkbutton_radiobutton_example.py`](examples/checkbutton_radiobutton_example.py) |
 | Sliders and number pickers | [`scale_spinbox_example.py`](examples/scale_spinbox_example.py) |
 | Lists and drop-down menus | [`listbox_combobox_example.py`](examples/listbox_combobox_example.py) |
@@ -171,6 +172,7 @@ and move, hide and update with it.
 | `Button` | A clickable button that runs a `command` function |
 | `TextBox` | A box the player can type into (like tkinter `Entry`) |
 | `Popup` | A pop-up window with a title and close button |
+| `MessageBox`, `askyesno()`, `askyesnocancel()`, `askokcancel()`, `showinfo()` | Ready-made question boxes (like tkinter's `messagebox`) |
 | `Checkbutton` | A tick box (on / off) |
 | `Radiobutton` | Choose one option from a group |
 | `Scale` | A slider for choosing a number |
@@ -258,11 +260,30 @@ menu = Frame(250, 120, 300, 300)
 menu.add(Label(10, 10, "Menu"), Button(10, 60, 200, 50, "Start", command=start_game))
 menu.toggle_visibility()        # hides / shows everything inside
 
-game_over = Popup(400, 300, 320, 200, "Game Over", center=True)
+game_over = Popup(400, 300, 320, 200, "Game Over", center=True,
+                  title_font_size=36)          # title size (24 if left out)
 game_over.show()
 ```
 Call `handle_event`, `update` and `draw` on the Frame or Popup only - it passes
 them on to everything inside. Draw popups last so they are on top.
+
+### Question boxes (MessageBox)
+```python
+def quit_answer(answer):              # True (Yes), False (No) or None (Cancel / closed)
+    if answer is not None:
+        pg.quit()
+        sys.exit()
+
+quit_box = askyesnocancel("Quit?", "Save before you quit?", command=quit_answer)
+quit_box.handle_event(event)          # FIRST in handle_inputs()
+quit_box.draw(screen)                 # LAST in draw_game()
+
+# Your own buttons: the answer is the button's text (None if closed with X / Escape)
+box = MessageBox("Shop", "Buy the sword?", buttons=("Buy", "Not now"), command=answer)
+box.show()
+```
+Enter presses the first button, Escape closes it. While it is open it takes
+every click and key, so the game underneath doesn't react.
 
 ### Animator
 ```python
@@ -386,6 +407,8 @@ Button(levels, text="Level 1").grid(row=0, column=0)       # add as many as you 
 
 items = Table(root, columns=["Item", "Damage"], rows=8, editable=["Damage"], on_edit=changed)
 items.column("Damage", type=int, anchor="e")               # numbers only when editing
+sheet = Table(root, columns=["Item", "Price"], editable=["Price"],
+              edit_mode="spreadsheet", border_color=(255, 200, 0))
 row = items.insert(["Sword", 7])
 items.get_selected()        # ["Sword", 7]
 world = levels_tree.insert(["World 1"], open=True)          # Table(..., tree=True)
@@ -402,6 +425,9 @@ context.post(*mouse.pos)               # open it; handle_event first, draw last
 ```
 Click a heading to sort. Double-click an editable cell (or Enter) to type;
 Enter saves, Tab moves on, Escape cancels.
+With `edit_mode="spreadsheet"`: click a cell and just type (it replaces the
+text), double-click / Enter / F2 edits the old text, Enter saves and moves down, Tab moves
+right, arrow keys move around, Delete empties the cell.
 
 ### Particles
 ```python
@@ -644,6 +670,8 @@ often trip students up. Everything here is deliberate.
 | Editing cells in a Treeview | not possible | `Table(..., editable=[...])` with number checks | spreadsheet-style tables |
 | `Notebook` tabs | make a Frame, then `add()` it | also `notebook.new_tab("Sound")` (returns the Frame) | one line per tab |
 | Pop-up messages | `messagebox` stops the program until closed | `Popup` doesn't stop the game loop | games keep running |
+| `messagebox.askyesno()` etc. | stops the program and **returns** the answer | `askyesno(..., command=f)` opens a `MessageBox` and gives the answer to `f(answer)` (a `f()` with no answer also works - read `box.result`) | a game can't stop and wait |
+| Editing a Treeview like a spreadsheet | not possible | `Table(..., edit_mode="spreadsheet")`: click and type, Enter moves down | quick data entry |
 | Colour option names | `color` only in some places, `fg` / `bg` mostly | `fg` / `bg` everywhere, and `color` **or** `colour` | consistent, and Australian spelling works |
 | See-through Frame | not possible | `bg=""` | layouts over a game background |
 | Frames and size | shrink to fit their contents | grow to fit when no `width` / `height` is given | the same idea, but you can also fix the size |
@@ -652,6 +680,21 @@ often trip students up. Everything here is deliberate.
 **Things tkinter has that this library doesn't (yet):** typing into a
 Combobox (it is choose-only), multi-line text editing (`Text`), and
 `Canvas` drawing items.
+
+## Changes since v1.0
+
+Everything here is **added** - code written for v1.0 still works the same.
+
+**v1.1**
+- `Table(border_color=...)` (and `border_colour`) - before, it could only be set
+  as an attribute (`table.border_color = ...`), which still works.
+- `Table(edit_mode="spreadsheet")` - click a cell and type; the default is still
+  `"double_click"`.
+- `Popup(title_font_size=..., title_font_name=...)` - the title is still 24 if
+  left out; a bigger title makes the title bar taller.
+- New `MessageBox` and `askyesno()`, `askyesnocancel()`, `askokcancel()`,
+  `showinfo()`.
+- New example `shop_editor_example.py`, new test `test_table_popup_messagebox.py`.
 
 ## Example art
 
