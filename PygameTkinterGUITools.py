@@ -5585,6 +5585,11 @@ class Animator:
       - Delta time frame advancement
       - Play once or looped animations
       - Flipping/inverting animations horizontally or vertically
+      - A frame rate for each animation: add_animation(..., frame_rate=16)
+      - Going back to another animation after a one-off:
+            animator.play_once("attack", then="idle")
+      - Running a function on a frame (footsteps, the hit of a sword):
+            animator.on_frame("walk", 1, step_sound.play)
 
     Parameters:
         source      - a list of image files (or Surfaces), or one sprite sheet file
@@ -5615,6 +5620,13 @@ class Animator:
         self.playing = True
         self.loop = True
         self.image = None
+
+        # play_once(then=, on_finish=) and on_frame()
+        self._then = None              # animation to play when a one-off ends
+        self._on_finish = None         # function to run when a one-off ends
+        self._once = False             # True while a play_once animation runs
+        self._frame_functions = {}     # {(name, frame_number): [functions]}
+        self._frame_shown = False      # has on_frame run for the current frame?
 
         if from_sheet:
             self._load_from_sheet(source, tile_width, tile_height, rows, cols)
@@ -5662,12 +5674,14 @@ class Animator:
     # -----------------------------
     # Animation controls
     # -----------------------------
-    def add_animation(self, name, frames, invert=(False, False)):
+    def add_animation(self, name, frames, invert=(False, False), frame_rate=None):
         """
         Define an animation sequence and optional flipping.
         frames: a list of (row, col) positions on a sprite sheet,
                 or a list of frame numbers, e.g. [0, 1, 2]
         invert: (flip_x, flip_y)
+        frame_rate: frames per second for THIS animation (e.g. run faster
+                than walk). None = use the Animator's frame_rate.
         """
         indices = []
         for f in frames:
@@ -5681,7 +5695,8 @@ class Animator:
                 index = row * self.sheet_cols + col
             if 0 <= index < len(self.frames):
                 indices.append(index)
-        self.animations[name] = {"frames": indices, "invert": invert}
+        self.animations[name] = {"frames": indices, "invert": invert,
+                                 "frame_rate": frame_rate}
 
     def play(self, name, reset=False):
         """
@@ -5702,21 +5717,74 @@ class Animator:
             # (play_once() turns looping off again straight after)
             self.playing = True
             self.loop = True
+            # A different animation cancels a one-off's then= / on_finish=
+            # (e.g. the player is hit in the middle of an attack)
+            self._once = False
+            self._then = None
+            self._on_finish = None
+            self._frame_shown = False
         else:
             # same animation requested; only reset if caller asked for it
             if reset:
                 self.current_frame_index = 0
                 self.timer = 0
+                self._frame_shown = False
 
-    def play_once(self, name):
+    def play_once(self, name, then=None, on_finish=None):
         """
         Play the named animation once (non-looping) from the start.
         Useful for attacks/jumps triggered by single KEYDOWN events.
+
+        then      - the animation to play (looping) when it ends, e.g. "idle".
+                    None = stop on the last frame (the v1.0 way).
+        on_finish - a function (no arguments) to run when it ends.
+
+            animator.play_once("attack", then="idle")
+            animator.play_once("die", on_finish=game_over)
         """
         if name not in self.animations:
             return
         self.play(name, reset=True)
         self.start(loop=False)
+        self._once = True
+        self._then = then
+        self._on_finish = on_finish
+
+    @property
+    def busy(self):
+        """True while a play_once() animation is still playing."""
+        return self._once and self.playing
+
+    def on_frame(self, name, frame_number, function):
+        """
+        Run function (no arguments) every time a frame of an animation is shown.
+
+        frame_number counts the frames IN THAT ANIMATION, starting at 0
+        (not the (row, col) on the sprite sheet).
+
+            animator.on_frame("walk", 1, step_sound.play)    # footsteps
+            animator.on_frame("attack", 2, hit_enemies)      # the hit frame
+        """
+        self._frame_functions.setdefault((name, frame_number), []).append(function)
+
+    def _frame_reached(self):
+        """Run the on_frame functions for the frame that is now showing."""
+        self._frame_shown = True
+        for function in self._frame_functions.get(
+                (self.current_animation, self.current_frame_index), []):
+            function()
+
+    def _one_off_ended(self):
+        """A play_once animation reached its end: run then= / on_finish=."""
+        then, on_finish = self._then, self._on_finish
+        self._once = False
+        self._then = None
+        self._on_finish = None
+        if then is not None:
+            self.play(then, reset=True)
+            self.start(loop=True)
+        if on_finish is not None:
+            on_finish()
 
     def start(self, loop=True):
         """Begin playing the current animation."""
@@ -5724,6 +5792,7 @@ class Animator:
         self.loop = loop
         self.current_frame_index = 0
         self.timer = 0
+        self._frame_shown = False
 
     def stop(self):
         """Stop animation playback."""
@@ -5742,10 +5811,12 @@ class Animator:
         frame_list = anim["frames"]
 
         if self.playing:
+            if not self._frame_shown and self._frame_functions:
+                self._frame_reached()            # the first frame of an animation
             # Timer counts whole milliseconds (decimals of seconds add up
             # with tiny rounding errors)
             self.timer += tick
-            frame_time = 1000 / self.frame_rate
+            frame_time = 1000 / (anim.get("frame_rate") or self.frame_rate)
             # Keep the leftover time so the speed matches frame_rate exactly
             while self.playing and self.timer >= frame_time:
                 self.timer -= frame_time
@@ -5758,6 +5829,19 @@ class Animator:
                     else:
                         self.current_frame_index = len(frame_list) - 1
                         self.playing = False
+                        if self._once:
+                            self._one_off_ended()
+                            # then= (or on_finish) may have switched animation
+                            anim = self.animations[self.current_animation]
+                            frame_list = anim["frames"]
+                            frame_time = 1000 / (anim.get("frame_rate") or self.frame_rate)
+                            if self.playing and not self._frame_shown and self._frame_functions:
+                                self._frame_reached()
+                        continue
+                # Run on_frame functions for every frame passed - even if
+                # a big tick jumps over a frame, its function still runs
+                if self._frame_functions:
+                    self._frame_reached()
 
         frame_index = frame_list[self.current_frame_index]
         invert_x, invert_y = anim["invert"]
@@ -5778,6 +5862,7 @@ class Animator:
         """Restart the current animation."""
         self.current_frame_index = 0
         self.timer = 0
+        self._frame_shown = False
 
 
 
@@ -6026,6 +6111,19 @@ class TiledMap:
 # SpriteObject Class
 # ================================
 
+# Compass directions for SpriteObject angles: 0 = up, then clockwise
+COMPASS = {"up": 0, "right": 90, "down": 180, "left": 270}
+
+
+def _centre_of(thing):
+    """The centre of a sprite, a Rect, or an (x, y) position, as a Vector2."""
+    if isinstance(thing, pg.Rect):
+        return pg.Vector2(thing.center)
+    if hasattr(thing, "rect"):
+        return pg.Vector2(thing.rect.center)
+    return pg.Vector2(thing)
+
+
 class SpriteObject(pg.sprite.Sprite):
     """
     A simple game object (player, enemy, coin...) with an image or Animator.
@@ -6036,15 +6134,30 @@ class SpriteObject(pg.sprite.Sprite):
         image         - a Surface or an image filename, e.g. "player.png"
         animator      - an Animator (used instead of image)
         bg            - colour of the plain box used when there is no image
+        image_faces   - which way the picture is drawn: "up" (default),
+                        "right", "down" or "left". Used by angle / point_at.
+        smooth_move   - True: move() keeps fractions of a pixel, so slow
+                        speeds like move(0.4, 0) still move (see move()).
 
     Example:
         player = SpriteObject(100, 100, image="player.png")
         player.move(5, 0)
         if player.collides_with(enemy): ...
+
+    Turning (only the picture turns - the hitbox rect stays the same):
+        angle is a compass direction in degrees: 0 = up, 90 = right,
+        180 = down, 270 = left (clockwise, like a compass).
+        turret.point_at(pg.mouse.get_pos())   # or point_at(enemy)
+        turret.turn(90 * tick / 1000)         # 90 degrees a second, clockwise
+        turret.angle = 180                    # face down
+
+    Handy maths:
+        enemy.distance_to(player)    # pixels between the centres
+        enemy.direction_to(player)   # a Vector2 of length 1 pointing at it
     """
 
     def __init__(self, x, y, width=None, height=None, image=None, animator=None,
-                 bg=(255, 0, 255)):
+                 bg=(255, 0, 255), image_faces="up", smooth_move=False):
         super().__init__()
         self.animator = animator
 
@@ -6064,6 +6177,17 @@ class SpriteObject(pg.sprite.Sprite):
         self.flip_y = False
         self._flash_until = 0        # see flash() and blink()
         self._blink_until = 0
+        if image_faces not in COMPASS:
+            raise ValueError(f'image_faces should be "up", "right", "down" or "left", '
+                             f'not {image_faces!r}')
+        self.image_faces = image_faces
+        # The picture starts unturned: angle = the way the picture already faces
+        self.angle = COMPASS[image_faces]
+        self.smooth_move = smooth_move
+        self._exact = None           # smooth_move: the position with fractions
+        self._exact_at = None        # where the rect was after the last smooth move
+        self._turned = {}            # cache of turned pictures
+        self._masks = {}             # cache of masks for pixel=True
 
     def _fit(self, image):
         """Scale the image to the size given when the sprite was made."""
@@ -6072,13 +6196,111 @@ class SpriteObject(pg.sprite.Sprite):
         return image
 
     def move(self, dx, dy):
-        """Move the sprite by dx, dy pixels."""
-        self.rect.x += dx
-        self.rect.y += dy
+        """
+        Move the sprite by dx, dy pixels.
 
-    def collides_with(self, other):
-        """True if this sprite touches another (anything with a .rect)."""
-        return self.rect.colliderect(other.rect)
+        A rect can only stand on whole pixels, so move(0.4, 0) normally moves
+        nothing at all. With smooth_move=True the fractions are kept and add
+        up: move(0.4, 0) five times moves 2 pixels.
+        """
+        if not self.smooth_move:
+            self.rect.x += dx
+            self.rect.y += dy
+            return
+        # If something else moved the rect (e.g. rect.x = 100, or a wall push),
+        # start again from where the rect really is
+        if self._exact is None or self._exact_at != self.rect.topleft:
+            self._exact = pg.Vector2(self.rect.topleft)
+        self._exact += (dx, dy)
+        self.rect.topleft = (round(self._exact.x), round(self._exact.y))
+        self._exact_at = self.rect.topleft
+
+    def collides_with(self, other, pixel=False):
+        """
+        True if this sprite touches another (anything with a .rect).
+
+        pixel=True: only count the pixels that are really drawn (not the
+        see-through corners of the picture). Slower, but exact - good for
+        round coins, spikes or turned sprites.
+        """
+        if not pixel:
+            return self.rect.colliderect(other.rect)
+        my_mask, my_pos = self._mask_and_pos()
+        other_mask, other_pos = _mask_and_pos_of(other)
+        offset = (other_pos[0] - my_pos[0], other_pos[1] - my_pos[1])
+        return my_mask.overlap(other_mask, offset) is not None
+
+    def collides_with_any(self, things, pixel=False):
+        """
+        The first thing in things (a list or Group) that this sprite touches,
+        or None.
+            coin = player.collides_with_any(coins)
+            if coin: coins.remove(coin)
+        """
+        for thing in things:
+            if thing is not self and self.collides_with(thing, pixel=pixel):
+                return thing
+        return None
+
+    # ---------- distance, direction and turning ----------
+    def distance_to(self, target):
+        """Pixels from this sprite's centre to target (a sprite, Rect or (x, y))."""
+        return (_centre_of(target) - pg.Vector2(self.rect.center)).length()
+
+    def direction_to(self, target):
+        """
+        A Vector2 of length 1 pointing at target (a sprite, Rect or (x, y)).
+        Multiply it by a speed to move towards the target:
+            step = enemy.direction_to(player) * SPEED * tick / 1000
+            enemy.move(step.x, step.y)
+        Gives (0, 0) when both are on the same spot.
+        """
+        gap = _centre_of(target) - pg.Vector2(self.rect.center)
+        if gap.length() == 0:
+            return pg.Vector2(0, 0)
+        return gap.normalize()
+
+    def point_at(self, target):
+        """Turn the picture to face target (a sprite, Rect or (x, y))."""
+        gap = _centre_of(target) - pg.Vector2(self.rect.center)
+        if gap.length() == 0:
+            return                                   # already there: keep the angle
+        # as_polar measures from "right"; add 90 so 0 = up (compass style)
+        self.angle = (gap.as_polar()[1] + 90) % 360
+
+    def turn(self, degrees):
+        """Turn clockwise by degrees (negative = anticlockwise)."""
+        self.angle = (self.angle + degrees) % 360
+
+    def _drawn_image(self):
+        """The picture as it is drawn: self.image, turned by angle."""
+        turn = (self.angle - COMPASS[self.image_faces]) % 360
+        if round(turn) % 360 == 0:
+            return self.image                        # not turned (the v1.0 way)
+        key = (id(self.image), round(turn))
+        cached = self._turned.get(key)
+        if cached is None or cached[0] is not self.image:
+            if len(self._turned) > 120:              # don't keep too many
+                self._turned.clear()
+            # pygame turns anticlockwise, compass angles go clockwise
+            cached = (self.image, pg.transform.rotate(self.image, -round(turn)))
+            self._turned[key] = cached
+        return cached[1]
+
+    def _mask_and_pos(self):
+        """The mask of the drawn picture and its top-left (for pixel=True)."""
+        image = self._drawn_image()
+        if image is self.image:
+            pos = self.rect.topleft
+        else:
+            pos = image.get_rect(center=self.rect.center).topleft
+        cached = self._masks.get(id(image))
+        if cached is None or cached[0] is not image:
+            if len(self._masks) > 120:
+                self._masks.clear()
+            cached = (image, pg.mask.from_surface(image))
+            self._masks[id(image)] = cached
+        return cached[1], pos
 
     def handle_event(self, event, offset=(0, 0)):
         pass
@@ -6096,12 +6318,28 @@ class SpriteObject(pg.sprite.Sprite):
         if now < self._blink_until and (now // self._blink_rate) % 2:
             return                                   # blinking: skip every other moment
         r = camera.apply(self.rect) if camera else self.rect
+        image = self._drawn_image()
+        if image is not self.image:
+            # Turned: the picture is bigger, so centre it on the hitbox
+            r = image.get_rect(center=r.center)
         if now < self._flash_until:
             # Draw the sprite's shape filled with one colour
-            mask = pg.mask.from_surface(self.image)
+            mask = pg.mask.from_surface(image)
             screen.blit(mask.to_surface(setcolor=self._flash_color, unsetcolor=(0, 0, 0, 0)), r)
         else:
-            screen.blit(self.image, r)
+            screen.blit(image, r)
+
+
+def _mask_and_pos_of(thing):
+    """A mask and top-left for anything: a SpriteObject, a sprite, or a rect."""
+    if hasattr(thing, "_mask_and_pos"):
+        return thing._mask_and_pos()
+    rect = _rect_of(thing)
+    image = getattr(thing, "image", None)
+    if isinstance(image, pg.Surface):
+        return pg.mask.from_surface(image), rect.topleft
+    mask = pg.mask.Mask(rect.size, fill=True)   # no picture: the whole rect is solid
+    return mask, rect.topleft
 
 
 # ================================
@@ -10270,7 +10508,10 @@ class Chain:
                 pos, facing = self._point_back((i + 1) * self.spacing)
             seg.rect.center = (round(pos.x), round(pos.y))
             angle = -math.degrees(math.atan2(facing.y, facing.x)) if facing.length() else 0
-            seg.angle = angle
+            if not isinstance(seg, SpriteObject):
+                # A SpriteObject's angle turns its picture, so leave it alone
+                # (rotate=True below turns it the v1.0 way)
+                seg.angle = angle
             if self.rotate and hasattr(seg, "_chain_picture") and seg._chain_picture is not None:
                 seg.image = pg.transform.rotate(seg._chain_picture, round(angle / 10) * 10)
                 seg.rect = seg.image.get_rect(center=seg.rect.center)

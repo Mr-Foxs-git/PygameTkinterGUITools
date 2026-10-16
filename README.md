@@ -126,7 +126,8 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Damage numbers and "+10" pop-ups that float up and fade | [`floating_text_example.py`](examples/floating_text_example.py) |
 | Things following a leader (worms, party members, trains, trails) | [`chain_example.py`](examples/chain_example.py) |
 | A complete Snake game | [`snake_example.py`](examples/snake_example.py) |
-| Animate a character from a sprite sheet | [`animator_example.py`](examples/animator_example.py) |
+| Animate a character from a sprite sheet (walk, run, jump back to idle, footstep sounds) | [`animator_example.py`](examples/animator_example.py) |
+| Turn to face the mouse, chase the player when close, exact (pixel) hits, very slow movement | [`sprite_tricks_example.py`](examples/sprite_tricks_example.py) |
 | Move a player and collect things | [`sprite_example.py`](examples/sprite_example.py) |
 | Have a world bigger than the screen | [`camera_example.py`](examples/camera_example.py) |
 | Load a level made in Tiled (with zoom) | [`tiled_example.py`](examples/tiled_example.py) |
@@ -229,8 +230,8 @@ and move, hide and update with it.
 
 | Class | What it does |
 |---|---|
-| `SpriteObject` | A basic game object with an image or animation |
-| `Animator` | Plays animations from image files or a sprite sheet |
+| `SpriteObject` | A basic game object with an image or animation. It can turn (`point_at`), measure (`distance_to`, `direction_to`) and do pixel-perfect hits |
+| `Animator` | Plays animations from image files or a sprite sheet, with `then=`, `on_frame` and a speed for each animation |
 | `Camera` / `ZoomCamera` | Follows a target and scrolls (and zooms) the world. Zoom is crisp for pixel art; use `smooth=True` for smooth scaling |
 | `TiledMap` | Loads a `.tmx` map made in Tiled |
 | `Tile` / `AnimatedTile` | Map tiles (static or animated) |
@@ -340,6 +341,12 @@ animator.add_animation("walk", [(1, 0), (1, 1), (1, 2), (1, 3)])   # (row, col)
 animator.play("walk")
 animator.play_once("jump")
 image = animator.update(tick, flip_x=facing_left)   # the frame to draw
+
+animator.add_animation("run", [(1, 0), (1, 1), (1, 2), (1, 3)], frame_rate=16)  # faster
+animator.play_once("attack", then="idle")       # goes back to idle by itself
+animator.play_once("die", on_finish=game_over)  # run a function at the end
+if not animator.busy: ...                       # busy = a play_once is still playing
+animator.on_frame("walk", 1, step_sound.play)   # frame 1 of "walk" (counted from 0)
 ```
 
 ### SpriteObject
@@ -349,6 +356,19 @@ player.move(5, 0)
 if player.collides_with(coin): ...
 player.update(tick)
 player.draw(screen)             # or player.draw(screen, camera)
+
+# Turning: only the picture turns, the hitbox (rect) stays the same
+turret = SpriteObject(400, 300, image="turret.png", image_faces="up")
+turret.point_at(pg.mouse.get_pos())   # or point_at(enemy)
+turret.turn(90 * tick / 1000)         # clockwise; minus = anticlockwise
+turret.angle = 90                     # compass: 0 up, 90 right, 180 down, 270 left
+
+if player.collides_with(spikes, pixel=True): ...   # only the drawn pixels count
+coin = player.collides_with_any(coins)             # first one touched, or None
+enemy.distance_to(player)                          # pixels, centre to centre
+step = enemy.direction_to(player) * SPEED * tick / 1000
+enemy.move(step.x, step.y)
+snail = SpriteObject(0, 0, image="snail.png", smooth_move=True)  # move(0.4, 0) works
 ```
 
 ### Camera and ZoomCamera
@@ -803,6 +823,9 @@ often trip students up. Everything here is deliberate.
 | Combobox typing | you can type by default (`state="readonly"` stops it); the list is not filtered | choose-only by default; `editable=True` lets you type **and** the list shows only the matches | v1.0 code keeps working; searching long lists is easy |
 | Listbox `selectmode` | `"browse"`, `"single"`, `"multiple"`, `"extended"` | `"single"` (default, `"browse"` also works) and `"multiple"`; `"extended"` (Shift / Ctrl-click) gives an error that suggests `"multiple"` | one click = tick / untick is easier to understand |
 | Fading / sliding widgets | not possible | `show(fade_ms=300)`, `hide(fade_ms=300)`, `slide_to(x, y, ms)` | menus that animate in and out |
+| Turning a picture | no sprites in tkinter; pygame's `rotate()` turns anticlockwise, the picture grows and drifts away from its spot | `sprite.angle` is a compass direction (0 up, 90 right, clockwise), `point_at()` does the maths, the picture stays centred and the hitbox doesn't change | angles match a compass and the screen; collisions stay steady |
+| Moving less than a pixel | pygame rects only hold whole numbers, so `rect.x += 0.4` does nothing | `SpriteObject(..., smooth_move=True)` keeps the fractions | slow speeds and `speed * tick / 1000` work |
+| Going back to idle after an attack | (pygame) check every frame whether the animation has ended | `play_once("attack", then="idle")`, `on_finish=`, `animator.busy` | less code in `update()` |
 
 **Things tkinter has that this library doesn't (yet):** multi-line text
 editing (`Text`), `Canvas` drawing items, and Shift / Ctrl-click choosing
@@ -864,6 +887,19 @@ Everything here is **added** - code written for v1.0 still works the same.
 - Copyright notices now name the State of Victoria (Department of Education),
   as the DET Intellectual Property and Copyright Policy requires, and the
   Student Guide and Cheat Sheet are marked CC BY 4.0. No code changed.
+- `Animator`: `play_once(name, then=..., on_finish=...)`, `animator.busy`,
+  `add_animation(..., frame_rate=...)` and `on_frame(name, frame_number, function)`.
+- `SpriteObject`: `angle`, `point_at()`, `turn()`, `image_faces=`,
+  `collides_with(other, pixel=True)`, `collides_with_any()`, `distance_to()`,
+  `direction_to()` and `smooth_move=True`.
+  **One thing to check:** if your own SpriteObject class already uses
+  `self.angle` for something else, the sprite will now turn its picture -
+  rename your attribute (e.g. `steering`).
+- `Chain` no longer sets `.angle` on SpriteObjects that follow it (they are
+  turned with `rotate=True` as before).
+- `animator_example.py` now runs (Shift), jumps back to idle with `then="idle"`
+  and plays footsteps with `on_frame`. New example `sprite_tricks_example.py`,
+  new test `test_sprite_extras.py`.
 
 ## Example art
 

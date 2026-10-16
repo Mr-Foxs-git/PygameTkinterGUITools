@@ -892,6 +892,108 @@ def _(s):
         use_fake_clock(False)
 
 
+
+# ======================================================================
+# Sprite and animation extras (v1.1)
+# ======================================================================
+def sheet_frame(row, col, scale=2):
+    anim = g.Animator(asset("player_sheet.png"), from_sheet=True, tile_width=32, tile_height=32,
+                      rows=3, cols=4, scale=scale)
+    return anim.frames[row * 4 + col]
+
+
+@shot("anim_events", 760, 330)
+def _(s):
+    text(s, 'play_once("jump", then="idle")', 20, 12, 20, colour=(255, 200, 0), bold=True)
+    for col in range(4):
+        s.blit(sheet_frame(2, col), (20 + col * 100, 45))
+        text(s, f"jump {col}", 52 + col * 100, 120, 16, (200, 200, 200), center=True)
+    arrow(s, (410, 77), (520, 77))
+    text(s, "by itself", 430, 50, 16, colour=(255, 200, 0))
+    s.blit(sheet_frame(0, 0), (540, 45))
+    text(s, "idle", 572, 120, 16, (200, 200, 200), center=True)
+
+    text(s, 'on_frame("walk", 1, step.play)   and   on_frame("walk", 3, step.play)', 20, 165,
+         20, colour=(255, 200, 0), bold=True)
+    for col in range(4):
+        s.blit(sheet_frame(1, col), (20 + col * 100, 200))
+        text(s, f"walk {col}", 52 + col * 100, 275, 16, (200, 200, 200), center=True)
+        if col in (1, 3):
+            text(s, "step!", 52 + col * 100, 300, 18, colour=(120, 220, 255), center=True,
+                 bold=True)
+    text(s, "Frame numbers count", 470, 215, 18)
+    text(s, "inside the animation,", 470, 240, 18)
+    text(s, "starting at 0", 470, 265, 18)
+
+
+def turret_picture(size=56):
+    picture = pg.Surface((size, size), pg.SRCALPHA)
+    middle = size // 2
+    pg.draw.circle(picture, (150, 150, 170), (middle, middle), size // 3)
+    pg.draw.rect(picture, (60, 60, 80), (middle - 5, 0, 10, middle))
+    return picture
+
+
+@shot("turning", 680, 300)
+def _(s):
+    # A compass: the four main angles
+    centre = pg.Vector2(150, 160)
+    text(s, "angle (like a compass)", 40, 12, 20, colour=(255, 200, 0), bold=True)
+    pg.draw.circle(s, (70, 70, 90), centre, 6)
+    for angle, label, label_pos in ((0, "0 = up", (150, 52)), (90, "90 = right", (285, 160)),
+                                    (180, "180 = down", (150, 270)), (270, "270 = left", (40, 160))):
+        pointer = g.SpriteObject(0, 0, image=turret_picture(40), image_faces="up")
+        pointer.rect.center = centre + pg.Vector2(0, -62).rotate(angle)
+        pointer.angle = angle
+        pointer.draw(s)
+        text(s, label, label_pos[0], label_pos[1], 16, center=True)
+    arrow(s, (205, 85), (232, 118), colour=(120, 220, 255))
+    text(s, "clockwise", 212, 62, 16, colour=(120, 220, 255))
+
+    # Three turrets aiming at one target
+    text(s, "turret.point_at(target)", 380, 12, 20, colour=(255, 200, 0), bold=True)
+    target = (560, 200)
+    pg.draw.circle(s, (230, 60, 60), target, 14, 3)
+    pg.draw.line(s, (230, 60, 60), (target[0] - 20, target[1]), (target[0] + 20, target[1]), 2)
+    pg.draw.line(s, (230, 60, 60), (target[0], target[1] - 20), (target[0], target[1] + 20), 2)
+    for x, y in ((380, 70), (620, 70), (420, 250)):
+        turret = g.SpriteObject(x - 28, y - 28, image=turret_picture(), image_faces="up")
+        turret.point_at(target)
+        turret.draw(s)
+        pg.draw.rect(s, (255, 255, 0), turret.rect, 1)
+    text(s, "yellow = the hitbox (it never turns)", 380, 275, 16, colour=(255, 255, 0))
+
+
+@shot("pixel_hits", 720, 280)
+def _(s):
+    def coin(x, y):
+        picture = pg.Surface((70, 70), pg.SRCALPHA)
+        pg.draw.circle(picture, (240, 190, 40), (35, 35), 35)
+        pg.draw.circle(picture, (200, 140, 20), (35, 35), 26, 4)
+        return g.SpriteObject(x, y, image=picture)
+
+    a, b = coin(40, 60), coin(100, 120)
+    a.draw(s)
+    b.draw(s)
+    pg.draw.rect(s, (255, 255, 0), a.rect, 1)
+    pg.draw.rect(s, (255, 255, 0), b.rect, 1)
+    text(s, f"a.collides_with(b)  =  {a.collides_with(b)}", 20, 210, 18)
+    text(s, f"a.collides_with(b, pixel=True)  =  {a.collides_with(b, pixel=True)}", 20, 235, 18,
+         colour=(255, 200, 0), bold=True)
+    text(s, "Only the corners of the rects touch", 20, 15, 18)
+
+    slime = g.SpriteObject(400, 60, animator=g.Animator(asset("slime_sheet.png"), from_sheet=True,
+                           tile_width=32, tile_height=32, rows=1, cols=2, scale=2))
+    player = g.SpriteObject(610, 120, image=sheet_frame(0, 0))
+    slime.draw(s)
+    player.draw(s)
+    pg.draw.line(s, (200, 200, 200), slime.rect.center, player.rect.center, 1)
+    step = slime.direction_to(player) * 70
+    arrow(s, slime.rect.center, pg.Vector2(slime.rect.center) + step, colour=(120, 220, 255))
+    text(s, f"slime.distance_to(player) = {round(slime.distance_to(player))}", 370, 210, 18)
+    text(s, "slime.direction_to(player) = blue arrow", 370, 235, 18,
+         colour=(120, 220, 255))
+
 print()
 print(f"Made {len(made)} pictures in {OUT}")
 if failed:
