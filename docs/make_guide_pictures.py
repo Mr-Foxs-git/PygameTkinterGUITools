@@ -668,6 +668,44 @@ def _(s):
     text(s, "Health bar, bullets, hit flash and sparks", 20, 320, 20)
 
 
+# ---------------------------------------------------------------- v1.1
+@shot("messagebox", 560, 300)
+def _(s):
+    for i in range(8):                                  # something "game-like" behind
+        pg.draw.circle(s, (70, 90, 160), (40 + i * 70, 60 + (i % 3) * 90), 24)
+    box = g.MessageBox("Quit?", "Save the game before you quit?",
+                       buttons=("Yes", "No", "Cancel"), x=280, y=150, width=400)
+    box.show()
+    box.draw(s)
+
+
+@shot("table_spreadsheet", 520, 260)
+def _(s):
+    t = g.Table(20, 20, columns=["Item", "Price", "Qty"], rows=6, width=360,
+                editable=["Price", "Qty"], edit_mode="spreadsheet", border_color=(255, 200, 0))
+    t.column("Price", type=int, anchor="e")
+    t.column("Qty", type=int, anchor="e")
+    for row in [["Iron sword", 45, 1], ["Bow", 35, 2], ["Oak shield", 30, 1],
+                ["Red potion", 15, 5], ["Steel helm", 75, 1]]:
+        t.insert(row)
+    rows = t.get_children()
+    t._pick_cell(rows[2], "Price")
+    t.draw(s)
+    text(s, "Click a cell, then just type", 400, 40, 18)
+    text(s, "Enter = down   Tab = right", 400, 70, 18)
+    text(s, "Arrows move around", 400, 100, 18)
+
+
+@shot("fps_debug", 640, 400)
+def _(s):
+    level, camera, world = level_view(s, "level1.tmx", (300, 330))
+    g.Debug.on = True
+    now = pg.time.get_ticks()
+    world._frame_times = [now - i * 16 for i in range(59, 0, -1)]   # pretend 60 frames ran
+    world.draw(s)
+    g.Debug.on = False
+
+
 print()
 print(f"Made {len(made)} pictures in {OUT}")
 if failed:

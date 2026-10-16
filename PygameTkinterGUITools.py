@@ -739,13 +739,34 @@ class Message(Widget):
         padding      - space around the text (when there is a bg)
         center       - if True, (x, y) is the centre
 
+    Typing the text out one letter at a time (like dialogue in Pokemon):
+        type_speed   - letters per second, e.g. 30 (None = show it all at once)
+        type_sound   - a SoundEffect to play as each letter appears
+                       (a list of files gives random typewriter clicks;
+                       cooldown= stops it buzzing when typing fast)
+        on_done      - function (no arguments) run when the last letter appears
+        skip_keys    - keys that show the rest of the text (Space and Enter)
+
+    When typing, also call:
+        message.update(tick)          in update(tick) - types the next letters
+        message.handle_event(event)   in handle_inputs() - a click or Space
+                                      shows the rest of the text and returns
+                                      True, so the SAME press doesn't also
+                                      move on to the next line
+    message.typing is True while letters are still appearing.
+    message.skip() shows the rest now; message.restart() types it again.
+    Changing the text with config(text=...) starts typing again by itself.
+
     Example:
         story = Message(50, 50, "A long time ago...", width=400)
+        talk = Message(50, 400, "Hello there!", width=600, type_speed=30)
     """
 
     def __init__(self, x, y=0, text="", width=300, textvariable=None, fg=None, bg=None,
                  font_name=None, font_size=None, justify="left", padding=8,
-                 line_spacing=4, center=False, visible=True, style=None):
+                 line_spacing=4, center=False, visible=True, style=None,
+                 type_speed=None, type_sound=None, on_done=None,
+                 skip_keys=(pg.K_SPACE, pg.K_RETURN, pg.K_KP_ENTER)):
         super().__init__(x, y, width, 0, center, visible, style)
         self.text = text
         self.textvariable = textvariable
@@ -756,12 +777,23 @@ class Message(Widget):
         self.justify = justify
         self.padding = padding
         self.line_spacing = line_spacing
+        # Typing out (all off unless type_speed is given)
+        self.type_speed = type_speed
+        self.type_sound = type_sound
+        self.on_done = on_done
+        self.skip_keys = skip_keys
+        self._typed_text = None      # the text being typed (to notice when it changes)
+        self._shown = 0.0            # letters shown so far (a float: fractions add up)
+        self._done_called = False
         self._refresh()
+
+    def _full_text(self):
+        return str(self.textvariable.get() if self.textvariable else self.text)
 
     def _lines(self):
         """Split the text into lines that fit inside the width."""
         font = self._font()
-        text = str(self.textvariable.get() if self.textvariable else self.text)
+        text = self._full_text()
         max_width = self.width - self.padding * 2
         lines = []
         for paragraph in text.split("\n"):
@@ -777,9 +809,80 @@ class Message(Widget):
         return lines
 
     def _refresh(self):
+        self._check_new_text()
         font = self._font()
         n = len(self._lines())
         self.height = n * font.get_height() + (n - 1) * self.line_spacing + self.padding * 2
+
+    # ---------- Typing out ----------
+
+    def _check_new_text(self):
+        """If the text has changed (config or textvariable), type it from the start."""
+        text = self._full_text()
+        if text != self._typed_text:
+            self._typed_text = text
+            self.restart()
+
+    @property
+    def typing(self):
+        """True while letters are still appearing."""
+        self._check_new_text()
+        return bool(self.type_speed) and self._shown < len(self._typed_text)
+
+    def _letters_shown(self):
+        """How many letters of the text to draw."""
+        if not self.type_speed:
+            return len(self._typed_text)      # not typing: show everything
+        return int(self._shown)
+
+    def restart(self):
+        """Type the text out again from the first letter."""
+        self._shown = 0.0
+        self._done_called = False
+
+    def skip(self):
+        """Show the rest of the text straight away."""
+        was_typing = self.typing
+        self._shown = float(len(self._typed_text))
+        if was_typing:
+            self._finished()
+
+    def _finished(self):
+        """Run on_done once, when the last letter has appeared."""
+        if not self._done_called:
+            self._done_called = True
+            if self.on_done:
+                self.on_done()
+
+    def update(self, tick):
+        """Show more letters. tick = milliseconds since the last frame."""
+        if not self.typing:
+            return
+        before = int(self._shown)
+        self._shown = min(self._shown + self.type_speed * tick / 1000,
+                          len(self._typed_text))
+        new_letters = self._typed_text[before:int(self._shown)]
+        # One sound per frame at most (even if several letters appeared),
+        # and none for spaces, so it sounds like typing - not a buzz
+        if self.type_sound and new_letters.strip():
+            self.type_sound.play()
+        if not self.typing:
+            self._finished()
+
+    def handle_event(self, event, offset=(0, 0)):
+        """
+        While typing, a left click or a skip key shows the rest of the text
+        and returns True (the press is used up). Otherwise returns False,
+        so your game can use the press (e.g. to go to the next line).
+        """
+        if not self.visible or not self.typing:
+            return False
+        clicked = event.type == pg.MOUSEBUTTONDOWN and event.button == 1
+        key = event.type == pg.KEYDOWN and event.key in self.skip_keys
+        if clicked or key:
+            self.skip()
+            return True
+        return False
 
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
@@ -790,15 +893,21 @@ class Message(Widget):
             pg.draw.rect(screen, self.cget("bg"), r)
         font = self._font()
         y = r.y + self.padding
+        letters_left = self._letters_shown()
         for line in self._lines():
-            surface = font.render(line, True, self.cget("fg"))
+            # The lines are worked out from the WHOLE text, so a word never
+            # jumps to the next line half-way through being typed
+            part = line[:max(0, letters_left)]
+            letters_left -= len(line) + 1          # +1 for the space or \n after it
+            full_width = font.size(line)[0]        # place it as if it were all there
             if self.justify == "center":
-                x = r.centerx - surface.get_width() // 2
+                x = r.centerx - full_width // 2
             elif self.justify == "right":
-                x = r.right - self.padding - surface.get_width()
+                x = r.right - self.padding - full_width
             else:
                 x = r.x + self.padding
-            screen.blit(surface, (x, y))
+            if part:
+                screen.blit(font.render(part, True, self.cget("fg")), (x, y))
             y += font.get_height() + self.line_spacing
 
 
@@ -4319,6 +4428,11 @@ class MessageBox(Popup):
     While it is open it takes every click and key, so the game underneath
     doesn't react.
 
+    type_speed=30 types the message out one letter at a time (see Message).
+    Then also call quit_box.update(tick) in update(tick). While it is typing,
+    the first click / Enter / Space only shows the rest of the message, so a
+    player can't answer before they have read the question.
+
     Shortcuts that answer like tkinter (True / False / None):
         askyesno(title, message, command)        True / False
         askyesnocancel(title, message, command)  True / False / None
@@ -4334,13 +4448,15 @@ class MessageBox(Popup):
         command  - function to run with the answer
         x, y     - centre of the box (None = the middle of the window)
         width    - width in pixels (the height fits the message)
+        type_speed, type_sound - type the message out (see Message)
         plus every Popup option (fg, bg, border_color, title_font_size, ...)
     """
 
     BUTTON_HEIGHT = 40
 
     def __init__(self, title="Message", message="", buttons=("OK",), command=None,
-                 x=None, y=None, width=380, font_size=None, **popup_options):
+                 x=None, y=None, width=380, font_size=None, type_speed=None,
+                 type_sound=None, **popup_options):
         popup_options.setdefault("pad_x", 16)
         super().__init__(x or 0, y or 0, width, 100, title, center=True, **popup_options)
         self.message = message
@@ -4350,7 +4466,8 @@ class MessageBox(Popup):
         self._auto_place = x is None or y is None
         self.close_button.command = lambda: self._answer(None)
         self.text = Message(0, 0, message, width=width - 2 * self.pad_x,
-                            font_size=font_size, padding=0)
+                            font_size=font_size, padding=0,
+                            type_speed=type_speed, type_sound=type_sound)
         self.buttons = [Button(0, 0, 10, self.BUTTON_HEIGHT, word, font_size=24,
                                command=lambda word=word: self._answer(word))
                         for word in buttons]
@@ -4378,6 +4495,7 @@ class MessageBox(Popup):
         if message is not None:
             self.message = message
         self.result = None
+        self.text.restart()                   # type it out again (if type_speed)
         super().show()
 
     def _answer(self, answer):
@@ -4395,6 +4513,8 @@ class MessageBox(Popup):
             return False
         self._place_on_screen()
         self._place_parts()
+        if self.text.handle_event(event):     # still typing: show the rest first
+            return True
         if event.type == pg.KEYDOWN:
             if event.key == pg.K_ESCAPE:
                 self._answer(None)
@@ -4409,6 +4529,12 @@ class MessageBox(Popup):
                 return True
         # Clicks anywhere else are used up too, so the game underneath is safe
         return event.type in (pg.MOUSEBUTTONDOWN, pg.MOUSEBUTTONUP, pg.MOUSEWHEEL)
+
+    def update(self, tick):
+        """Types the message out. Only needed when type_speed is given."""
+        super().update(tick)
+        if self.visible:
+            self.text.update(tick)
 
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:

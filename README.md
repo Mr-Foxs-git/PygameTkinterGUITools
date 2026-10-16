@@ -106,6 +106,7 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Sliders and number pickers | [`scale_spinbox_example.py`](examples/scale_spinbox_example.py) |
 | Lists and drop-down menus | [`listbox_combobox_example.py`](examples/listbox_combobox_example.py) |
 | Dialogue / instructions that wrap | [`message_example.py`](examples/message_example.py) |
+| Dialogue that types out letter by letter, with a typing sound | [`typewriter_example.py`](examples/typewriter_example.py) |
 | Health, energy and loading bars | [`progressbar_example.py`](examples/progressbar_example.py) |
 | Change how everything looks (themes, images) | [`style_example.py`](examples/style_example.py) |
 | A pause menu with tabs, used with the keyboard | [`settings_menu_example.py`](examples/settings_menu_example.py) |
@@ -284,6 +285,8 @@ box.show()
 ```
 Enter presses the first button, Escape closes it. While it is open it takes
 every click and key, so the game underneath doesn't react.
+Add `type_speed=30` to type the message out (then call `box.update(tick)`);
+the first click or Enter only shows the rest of the message.
 
 ### Animator
 ```python
@@ -501,6 +504,22 @@ sound_tab = settings.new_tab("Sound")                       # a Frame to add() t
 Draw a Combobox after the widgets below it, so its open list is on top
 (inside a Frame or Notebook this is done for you).
 
+### Typing text out (like Pokemon dialogue)
+```python
+click = SoundEffect("click.wav", cooldown=60)        # optional typing sound
+talk = Message(60, 400, "Hello there!", width=680,
+               type_speed=30,                         # letters per second
+               type_sound=click, on_done=show_arrow)  # on_done: last letter shown
+
+talk.update(tick)                    # in update(tick) - types the next letters
+if talk.handle_event(event):         # in handle_inputs() - True = it used the press
+    continue                         # (to show the rest), so don't go to the next line
+talk.config(text="Next line...")     # new text types out by itself
+```
+`talk.typing` is True while letters are appearing, `talk.skip()` shows the rest,
+`talk.restart()` types it again. A left click, Space or Enter shows the rest
+(change the keys with `skip_keys=`). No sound is played for spaces.
+
 ### Style and themes
 ```python
 style = Style()
@@ -689,6 +708,7 @@ often trip students up. Everything here is deliberate.
 | See-through Frame | not possible | `bg=""` | layouts over a game background |
 | Frames and size | shrink to fit their contents | grow to fit when no `width` / `height` is given | the same idea, but you can also fix the size |
 | Style changes | `ttk.Style` | `Style()` - also changes widgets that already exist | live theme switching |
+| Typewriter text (one letter at a time) | not built in - you write an `after()` loop that adds a letter and reschedules itself | `Message(..., type_speed=30, type_sound=...)`; a click or Space shows the rest | game dialogue in one option |
 
 **Things tkinter has that this library doesn't (yet):** typing into a
 Combobox (it is choose-only), multi-line text editing (`Text`), and
@@ -714,6 +734,12 @@ Everything here is **added** - code written for v1.0 still works the same.
   the FPS and tiles drawn.
 - Bodies (`TopDownBody`, `PlatformerBody`) check walls faster - the results are
   exactly the same. New test `test_big_maps.py`.
+- `Message(type_speed=..., type_sound=..., on_done=..., skip_keys=...)` types the
+  text out one letter at a time, with `update(tick)`, `handle_event()`, `skip()`,
+  `restart()` and `typing`. `MessageBox(type_speed=..., type_sound=...)` and
+  `box.update(tick)` do the same for question boxes. Without `type_speed` both
+  show the text at once like before. New example `typewriter_example.py`, new
+  test `test_typewriter.py`.
 
 ## Example art
 

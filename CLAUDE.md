@@ -95,7 +95,8 @@ Animator, Tiled map loading, and soon a Joystick class).
    - Only `TiledMap` may import pytmx (inside the class).
 6. **Dependencies.** Only `pygame` and `pytmx`. Ask before adding any more.
 7. **Examples.** New features should come with a small runnable example in
-   `examples/` and an update to `README.md`.
+   `examples/` and an update to `README.md`. Whenever a feature is added or
+   changed, also update the cheat sheet (`docs/PygameTkinterGUITools_CheatSheet.docx`).
 8. **Example game loop.** Every example (and the README) must follow
    `examples/_template.py` exactly:
    - functions in this order: `init_pygame()`, `handle_inputs()`,
