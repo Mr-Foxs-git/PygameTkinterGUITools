@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>f455a13a-f7b3-42d7-99ec-a801e987b2df</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>tests\test_examples.py</StartupFile>
+    <StartupFile>examples\floating_text_example.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -40,6 +40,8 @@
     <Compile Include="examples\listbox_combobox_example.py" />
     <Compile Include="examples\message_example.py" />
     <Compile Include="examples\progressbar_example.py" />
+    <Compile Include="examples\hearts_example.py" />
+    <Compile Include="tests\test_hearts.py" />
     <Compile Include="examples\scale_spinbox_example.py" />
     <Compile Include="examples\settings_menu_example.py" />
     <Compile Include="examples\style_example.py" />
@@ -57,6 +59,8 @@
     <Compile Include="tests\test_layout_scenes_combat.py" />
     <Compile Include="examples\scrolled_table_menu_example.py" />
     <Compile Include="examples\particles_example.py" />
+    <Compile Include="examples\floating_text_example.py" />
+    <Compile Include="tests\test_floating_text.py" />
     <Compile Include="examples\chain_example.py" />
     <Compile Include="examples\snake_example.py" />
     <Compile Include="tests\test_scroll_table_menu_particles_chain.py" />
@@ -91,6 +95,9 @@
     <Content Include="examples\assets\check_on.png" />
     <Content Include="examples\assets\hearts_full.png" />
     <Content Include="examples\assets\hearts_empty.png" />
+    <Content Include="examples\assets\heart_full.png" />
+    <Content Include="examples\assets\heart_half.png" />
+    <Content Include="examples\assets\heart_empty.png" />
     <Content Include="examples\assets\item_sword.png" />
     <Content Include="examples\assets\item_shield.png" />
     <Content Include="examples\assets\item_potion.png" />

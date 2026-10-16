@@ -108,6 +108,7 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Dialogue / instructions that wrap | [`message_example.py`](examples/message_example.py) |
 | Dialogue that types out letter by letter, with a typing sound | [`typewriter_example.py`](examples/typewriter_example.py) |
 | Health, energy and loading bars | [`progressbar_example.py`](examples/progressbar_example.py) |
+| Health as a row of hearts (Zelda style) | [`hearts_example.py`](examples/hearts_example.py) |
 | Change how everything looks (themes, images) | [`style_example.py`](examples/style_example.py) |
 | A pause menu with tabs, used with the keyboard | [`settings_menu_example.py`](examples/settings_menu_example.py) |
 | Sounds on key presses (pressed vs held keys) | [`keyboard_sound_example.py`](examples/keyboard_sound_example.py) |
@@ -120,6 +121,7 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Health, shooting, hit effects, camera shake | [`shooter_example.py`](examples/shooter_example.py) |
 | Menu bar, right-click menu, editable table, tree view, scrolling list | [`scrolled_table_menu_example.py`](examples/scrolled_table_menu_example.py) |
 | Explosions, fire, smoke, rain, snow, sparks... | [`particles_example.py`](examples/particles_example.py) |
+| Damage numbers and "+10" pop-ups that float up and fade | [`floating_text_example.py`](examples/floating_text_example.py) |
 | Things following a leader (worms, party members, trains, trails) | [`chain_example.py`](examples/chain_example.py) |
 | A complete Snake game | [`snake_example.py`](examples/snake_example.py) |
 | Animate a character from a sprite sheet | [`animator_example.py`](examples/animator_example.py) |
@@ -208,6 +210,7 @@ and move, hide and update with it.
 | `after()`, `after_repeat()`, `Countdown` | Timers, like tkinter's `root.after` |
 | `save_data()`, `load_data()`, `HighScores` | Save files and high-score tables |
 | `Health` | Hit points, invincibility, death, linked to a Progressbar |
+| `HeartsBar` | Shows health as a row of hearts, with half hearts |
 | `Shooter`, `ProjectileGroup` | Bullets, arrows, shotguns |
 | `flash()`, `blink()`, `knockback()`, `camera.shake()` | Hit effects |
 | `Debug` | F1 turns every debug view on and off |
@@ -215,6 +218,7 @@ and move, hide and update with it.
 | `Table` | Rows and columns (like ttk.Treeview): sorting, editable cells, tree view |
 | `Menu` | Menu bars, sub-menus and right-click menus, with working shortcuts |
 | `ParticleEmitter`, `Particles` | Particle effects, with ready-made presets |
+| `FloatingText` | Damage numbers and "+10" pop-ups - a text particle that `Particles` looks after |
 | `Chain` | Things that follow a leader - snakes, worms, followers, trains, trails |
 | `draw_text()` | Quickly draw text on the screen |
 
@@ -416,6 +420,19 @@ for hit in bullets.hits(enemies):
 camera.shake(200, strength=6)
 ```
 
+### Hearts (HeartsBar)
+```python
+player_health = Health(6, invincible_ms=800)
+hearts = HeartsBar(20, 20, health=player_health, hearts=3)  # 2 HP per heart
+hearts.draw(screen)                  # damage / heal show up by themselves
+```
+Leave out `hearts=` for one heart per HP. Options: `heart_size=32` (or
+`(w, h)`), `gap=4`, `per_row=` (wrap onto rows), `half_hearts=False`,
+`full_image=` / `half_image=` / `empty_image=` (pictures of one heart, e.g.
+`examples/assets/heart_full.png`) and `flash_when_hurt=True` (blinks while
+invincible; call `hearts.update(tick)`). Without a Health it works like a
+Progressbar: `HeartsBar(20, 20, maximum=5, value=3)`.
+
 ### ScrolledFrame, Table and Menu
 ```python
 levels = ScrolledFrame(root, width=250, height=300)        # visible size
@@ -460,6 +477,22 @@ bubbles.burst(50)
 ```
 Any setting can be a (low, high) range. `color` can be a list to fade through.
 Shapes: `"circle"`, `"square"`, `"line"` or an image. `glow=True` for fire and magic.
+
+### FloatingText (damage numbers, "+10")
+`FloatingText` is a **text particle**: it belongs to `Particles`, just like an
+explosion. So your game needs the two `Particles` lines, **even if it uses no
+other particle effects** - without them the text never moves or shows up.
+```python
+Particles.update(tick)                      # once, in update(tick)
+Particles.draw(screen, camera)              # once, in draw_game() (camera optional)
+
+FloatingText(enemy.rect.centerx, enemy.rect.top, "-10", color="red")
+FloatingText(coin.rect.centerx, coin.rect.top, "+10", color="gold", speed=40)
+FloatingText(x, y, damage)                  # numbers work too
+```
+No list to keep and nothing to delete: it floats up (`speed` pixels per second),
+fades out in the second half of its `duration` (ms) and `Particles` removes it.
+Options: `color`, `font_name`, `font_size`, `outline_color` (`None` = no outline).
 
 ### Chain (snakes, followers, trains...)
 ```python
@@ -708,6 +741,7 @@ often trip students up. Everything here is deliberate.
 | See-through Frame | not possible | `bg=""` | layouts over a game background |
 | Frames and size | shrink to fit their contents | grow to fit when no `width` / `height` is given | the same idea, but you can also fix the size |
 | Style changes | `ttk.Style` | `Style()` - also changes widgets that already exist | live theme switching |
+| Health as hearts | no widget for it; a `ttk.Progressbar` with pictures stretches them and cuts hearts at any percent | `HeartsBar` draws whole and half hearts and reads a `Health` | looks like real games, no maths needed |
 | Typewriter text (one letter at a time) | not built in - you write an `after()` loop that adds a letter and reschedules itself | `Message(..., type_speed=30, type_sound=...)`; a click or Space shows the rest | game dialogue in one option |
 
 **Things tkinter has that this library doesn't (yet):** typing into a
@@ -734,12 +768,19 @@ Everything here is **added** - code written for v1.0 still works the same.
   the FPS and tiles drawn.
 - Bodies (`TopDownBody`, `PlatformerBody`) check walls faster - the results are
   exactly the same. New test `test_big_maps.py`.
+- New `HeartsBar` - shows a `Health` (or any value) as a row of hearts. New
+  single-heart pictures `heart_full.png`, `heart_half.png`, `heart_empty.png`,
+  new example `hearts_example.py`, new test `test_hearts.py`.
 - `Message(type_speed=..., type_sound=..., on_done=..., skip_keys=...)` types the
   text out one letter at a time, with `update(tick)`, `handle_event()`, `skip()`,
   `restart()` and `typing`. `MessageBox(type_speed=..., type_sound=...)` and
   `box.update(tick)` do the same for question boxes. Without `type_speed` both
   show the text at once like before. New example `typewriter_example.py`, new
   test `test_typewriter.py`.
+- New `FloatingText(x, y, text)` for damage numbers and "+10" pop-ups that float
+  up and fade. It is a text particle, so `Particles.update(tick)` and
+  `Particles.draw(screen)` move, draw and remove it. New example
+  `floating_text_example.py`, new test `test_floating_text.py`.
 
 ## Example art
 

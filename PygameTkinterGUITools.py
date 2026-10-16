@@ -17,8 +17,8 @@ TopDownBody, PlatformerBody, MovingPlatform.
 Game structure: Scenes, Scene, after, after_repeat, after_cancel, Countdown,
 save_data, load_data, HighScores, Debug.
 Layout (like tkinter): widget.grid() / pack() / place(), Root.
-Combat: Health, Projectile, ProjectileGroup, Shooter, flash, blink, knockback,
-camera.shake.
+Combat: Health, HeartsBar, Projectile, ProjectileGroup, Shooter, flash, blink,
+knockback, camera.shake.
 More widgets: ScrolledFrame, Table (with tree view and editing), Menu.
 Effects: ParticleEmitter, Particles (ready-made effects). Chain (snakes, followers).
 Sound: init_audio, Audio, SoundEffect, Music.
@@ -228,6 +228,8 @@ THEMES = {
         "Notebook": {"bg": (60, 60, 60), "tab_bg": (90, 90, 90), "border_width": 2},
         "Popup": {"fg": BLACK, "bg": (240, 240, 240), "border_color": BLACK,
                   "border_width": 2, "title_font_size": 24, "title_font_name": None},
+        "HeartsBar": {"heart_color": (220, 40, 60), "empty_color": (70, 70, 80),
+                      "border_color": BLACK, "border_width": 2},
     },
     "dark": {
         ".": {"fg": (230, 230, 240), "bg": (40, 40, 50), "border_color": (90, 90, 110),
@@ -270,6 +272,8 @@ THEMES = {
         "Frame": {"bg": (0, 0, 0)},
         "Notebook": {"bg": (0, 0, 0), "tab_bg": (40, 40, 40)},
         "Popup": {"fg": (255, 255, 255), "bg": (0, 0, 0), "border_color": (255, 60, 160)},
+        "HeartsBar": {"heart_color": (255, 60, 160), "empty_color": (40, 40, 40),
+                      "border_color": (255, 255, 255)},
     },
 }
 
@@ -8487,6 +8491,203 @@ class Health:
             self._update_bar()
 
 
+class HeartsBar(Widget):
+    """
+    Shows health as a row of hearts, like Zelda or Minecraft.
+
+    Parameters:
+        x, y        - position of the first heart (top-left)
+        health      - a Health object to show (read every frame, so damage
+                      and healing show up by themselves)
+        hearts      - how many hearts to draw. None = one heart per point
+                      of health. hearts=5 with Health(100) = 20 HP per heart.
+        maximum, value, variable - use these instead of health=
+                      (same names as Progressbar)
+        heart_size  - size of each heart: a number or (width, height)
+        gap         - space between hearts
+        per_row     - start a new row after this many hearts (None = one row)
+        half_hearts - True = show half hearts, False = whole hearts only
+        full_image, half_image, empty_image - pictures of ONE heart.
+                      Leave them out to draw hearts with pygame instead.
+        heart_color, empty_color, border_color, border_width - colours for
+                      the drawn hearts (from the Style if left out)
+        flash_when_hurt - True = the hearts blink while the Health is
+                      invincible after a hit (needs update(tick))
+
+    A heart that is only partly full is rounded UP, so you always see at
+    least half a heart until the health reaches 0.
+
+    Example:
+        player_health = Health(6, invincible_ms=800)
+        hearts = HeartsBar(20, 20, health=player_health, hearts=3)  # 2 HP per heart
+        ...
+        hearts.draw(screen)
+    """
+
+    def __init__(self, x, y=0, health=None, hearts=None, maximum=10, value=None,
+                 variable=None, heart_size=32, gap=4, per_row=None, half_hearts=True,
+                 full_image=None, half_image=None, empty_image=None,
+                 heart_color=None, heart_colour=None, empty_color=None,
+                 empty_colour=None, border_color=None, border_colour=None,
+                 border_width=None, flash_when_hurt=False, center=False,
+                 visible=True, style=None):
+        super().__init__(x, y, center=center, visible=visible, style=style)
+        self.health = health
+        self.hearts = hearts
+        self.maximum = maximum
+        if value is None:
+            value = maximum
+        self.variable = variable if variable is not None else DoubleVar(value)
+        self.heart_size = heart_size
+        self.gap = gap
+        self.per_row = per_row
+        self.half_hearts = half_hearts
+        self.full_image = full_image
+        self.half_image = half_image
+        self.empty_image = empty_image
+        self.heart_color = _pick(heart_color, heart_colour)
+        self.empty_color = _pick(empty_color, empty_colour)
+        self.border_color = _pick(border_color, border_colour)
+        self.border_width = border_width
+        self.flash_when_hurt = flash_when_hurt
+        self._flash_time = 0         # counts up while flashing (ms)
+        self._shapes = {}            # drawn hearts, made once and reused
+        self._refresh()
+
+    # value works like Progressbar, so Health(..., bar=hearts) also works
+    @property
+    def value(self):
+        return self.variable.get()
+
+    @value.setter
+    def value(self, new_value):
+        self.variable.set(max(0, min(self.maximum, new_value)))
+
+    # ---- working out the numbers ----
+    def _numbers(self):
+        """Return (maximum, value) from the Health object, or our own."""
+        if self.health is not None:
+            return self.health.maximum, self.health.value
+        return self.maximum, self.value
+
+    def heart_count(self):
+        """How many hearts are drawn (full and empty)."""
+        import math
+        if self.hearts is not None:
+            return max(1, int(self.hearts))
+        maximum = self._numbers()[0]
+        return max(1, int(math.ceil(maximum)))
+
+    def hearts_filled(self):
+        """How many hearts are full, e.g. 2.5 = two and a half hearts."""
+        import math
+        maximum, value = self._numbers()
+        if maximum <= 0 or value <= 0:
+            return 0
+        filled = value / maximum * self.heart_count()
+        # round(..., 6) stops tiny maths errors (2.0000001) rounding up
+        if self.half_hearts:
+            return math.ceil(round(filled * 2, 6)) / 2
+        return math.ceil(round(filled, 6))
+
+    def _size(self):
+        """Size of one heart as (width, height)."""
+        if isinstance(self.heart_size, (tuple, list)):
+            return int(self.heart_size[0]), int(self.heart_size[1])
+        return int(self.heart_size), int(self.heart_size)
+
+    def _refresh(self):
+        """Work out the widget's size from the number of hearts."""
+        import math
+        count = self.heart_count()
+        if count > 30:
+            message = (f"HeartsBar has {count} hearts - did you forget hearts=? "
+                       f"e.g. HeartsBar(x, y, health=..., hearts=5)")
+            if message not in Layout._printed:
+                Layout._printed.add(message)
+                print("Warning:", message)
+        per_row = self.per_row or count
+        columns = min(count, per_row)
+        rows = math.ceil(count / per_row)
+        w, h = self._size()
+        self.width = columns * w + (columns - 1) * self.gap
+        self.height = rows * h + (rows - 1) * self.gap
+
+    # ---- drawing ----
+    def _drawn_heart(self, color):
+        """A heart shape drawn with pygame (made once, then reused)."""
+        w, h = self._size()
+        border = self.cget("border_width") or 0
+        border_color = self.cget("border_color")
+        key = (color, w, h, border, border_color)
+        if key not in self._shapes:
+            surface = pg.Surface((w, h), pg.SRCALPHA)
+            if border and border_color is not None:
+                _draw_heart_shape(surface, border_color, pg.Rect(0, 0, w, h))
+                inner = pg.Rect(0, 0, w, h).inflate(-2 * border, -2 * border)
+                _draw_heart_shape(surface, color, inner)
+            else:
+                _draw_heart_shape(surface, color, pg.Rect(0, 0, w, h))
+            self._shapes[key] = surface
+        return self._shapes[key]
+
+    def _pictures(self):
+        """Return the (full, empty) heart pictures to use."""
+        size = self._size()
+        if self.full_image is not None:
+            full = load_image(self.full_image, size)
+        else:
+            full = self._drawn_heart(self.cget("heart_color"))
+        if self.empty_image is not None:
+            empty = load_image(self.empty_image, size)
+        else:
+            empty = self._drawn_heart(self.cget("empty_color"))
+        return full, empty
+
+    def update(self, tick):
+        """Only needed for flash_when_hurt."""
+        if self.flash_when_hurt and self.health is not None and self.health.invincible:
+            self._flash_time += tick
+        else:
+            self._flash_time = 0
+
+    def draw(self, screen, offset=(0, 0)):
+        if not self.visible:
+            return
+        self._refresh()
+        # Blink: hidden for 100 ms, shown for 100 ms, while flashing
+        if self._flash_time and (self._flash_time // 100) % 2 == 1:
+            return
+        r = self.get_rect(offset)
+        w, h = self._size()
+        full, empty = self._pictures()
+        filled = self.hearts_filled()
+        per_row = self.per_row or self.heart_count()
+        for i in range(self.heart_count()):
+            x = r.x + (i % per_row) * (w + self.gap)
+            y = r.y + (i // per_row) * (h + self.gap)
+            if i + 1 <= filled:                       # a full heart
+                screen.blit(full, (x, y))
+            elif i + 0.5 <= filled:                   # a half heart
+                if self.half_image is not None:
+                    screen.blit(load_image(self.half_image, (w, h)), (x, y))
+                else:
+                    screen.blit(empty, (x, y))
+                    screen.blit(full, (x, y), area=pg.Rect(0, 0, w // 2, h))
+            else:                                     # an empty heart
+                screen.blit(empty, (x, y))
+
+
+def _draw_heart_shape(surface, color, rect):
+    """Draw a simple heart (two circles and a triangle) filling rect."""
+    radius = rect.width / 4
+    top = rect.y + radius
+    pg.draw.circle(surface, color, (rect.x + radius, top), radius)
+    pg.draw.circle(surface, color, (rect.right - radius, top), radius)
+    pg.draw.polygon(surface, color, [(rect.x, top + 1), (rect.right, top + 1),
+                                     (rect.centerx, rect.bottom)])
+
+
 # ================================
 # Projectile classes (bullets, arrows, fireballs...)
 # ================================
@@ -8959,6 +9160,7 @@ class Particles:
         fire = Particles.fire(pos=(x, y))
         Particles.rain(screen.get_rect())   Particles.snow(screen.get_rect())
         Particles.magic(follow=wizard)      Particles.trail(follow=rocket)
+        FloatingText(x, y, "+10")           # a text particle (see FloatingText)
 
     Each preset is just a ParticleEmitter with settings - copy one from the
     library and change the numbers to make your own effect.
@@ -9114,6 +9316,106 @@ class Particles:
         return ParticleEmitter(follow=follow, rate=rate, lifetime=(250, 450), speed=(0, 15),
                                spread=180, size=(size, 0), glow=True,
                                color=[color, (120, 30, 0)])
+
+
+# ================================
+# FloatingText Class (damage numbers, "+10" pop-ups)
+# ================================
+
+class FloatingText:
+    """
+    Text that pops up, floats upwards and fades away: damage numbers,
+    "+10" for a coin, "Level up!"...
+
+    FloatingText is a TEXT PARTICLE. Like an explosion, it belongs to
+    Particles, so your game must have the two Particles lines, even if
+    it uses no other particle effects:
+
+        Particles.update(tick)              # in update(tick)
+        Particles.draw(screen, camera)      # in draw_game() (camera is optional)
+
+    Then one line makes a pop-up. You don't need to keep it in a list or
+    delete it: Particles removes it when it has faded out.
+
+        FloatingText(enemy.rect.centerx, enemy.rect.top, "-10", color="red")
+        FloatingText(x, y, 25)              # numbers work too
+
+    Parameters:
+        x, y          - where the middle of the text starts (world position)
+        text          - the words or number to show
+        color         - text colour (default white); colour= also works
+        font_name, font_size - the font (font_name=None is pygame's default)
+        speed         - how fast it floats up, in pixels per second
+        duration      - how long it lasts, in ms (it fades out in the second half)
+        outline_color - a thin outline so it is readable on any background;
+                        None for no outline (outline_colour= also works)
+    """
+
+    def __init__(self, x, y, text, color=None, font_name=None, font_size=24,
+                 speed=60, duration=1000, outline_color=(0, 0, 0), colour=None,
+                 outline_colour=None):
+        self.x = x
+        self.y = float(y)           # float, so slow speeds still move smoothly
+        self.text = str(text)       # numbers become text: 25 -> "25"
+        self.color = _pick(color, colour, (255, 255, 255))
+        self.outline_color = _pick(outline_colour, outline_color)
+        self.font_name = font_name
+        self.font_size = font_size
+        self.speed = speed
+        self.duration = duration
+        self.age = 0                # ms since it appeared
+        self.once = True            # tells Particles to remove it when finished
+        self.image = self._make_image()
+        Particles.add(self)         # Particles updates and draws it from now on
+
+    def _make_image(self):
+        """Draw the text (and its outline) once, so each frame is quick."""
+        font = get_font(self.font_name, self.font_size)
+        words = font.render(self.text, True, pg.Color(self.color))
+        if self.outline_color is None:
+            return words
+        # The outline is the same text in the outline colour, drawn 1 pixel
+        # out in each direction, with the real text on top.
+        edge = font.render(self.text, True, pg.Color(self.outline_color))
+        image = pg.Surface((words.get_width() + 2, words.get_height() + 2), pg.SRCALPHA)
+        for dx, dy in ((0, 1), (2, 1), (1, 0), (1, 2)):
+            image.blit(edge, (dx, dy))
+        image.blit(words, (1, 1))
+        return image
+
+    @property
+    def finished(self):
+        """True once it has completely faded out."""
+        return self.age >= self.duration
+
+    @property
+    def count(self):
+        """Particles.count() counts particles, so a text counts as 0."""
+        return 0
+
+    def remove(self):
+        """Take it off the screen straight away."""
+        Particles.remove(self)
+
+    def update(self, tick):
+        """Float up. Particles.update(tick) calls this for you."""
+        self.age += tick
+        self.y -= self.speed * tick / 1000      # speed is per second, tick is ms
+
+    def draw(self, screen, camera=None):
+        """Draw it, fading in the second half. Particles.draw() calls this for you."""
+        if self.finished:
+            return
+        half = self.duration / 2
+        if self.age <= half:
+            alpha = 255
+        else:
+            alpha = int(255 * (self.duration - self.age) / half)
+        x, y = self.x, self.y
+        if camera is not None:
+            x, y = camera.apply_pos((x, y))
+        self.image.set_alpha(alpha)
+        screen.blit(self.image, self.image.get_rect(center=(int(x), int(y))))
 
 
 # ================================

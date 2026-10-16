@@ -706,6 +706,17 @@ def _(s):
     g.Debug.on = False
 
 
+@shot("typewriter", 560, 200)
+def _(s):
+    talk = g.Message(20, 60, "Hello there! Welcome to the world of pygame!", width=520,
+                     bg=(250, 250, 250), fg=(30, 30, 30), padding=18, font_size=28,
+                     type_speed=20)
+    talk.update(1100)                                   # part-way through typing
+    talk.draw(s)
+    text(s, "The letters appear one at a time...", 20, 20, 20)
+    text(s, "Click or press SPACE to see the rest straight away", 20, 135, 18,
+         colour=(255, 200, 0))
+
 print()
 print(f"Made {len(made)} pictures in {OUT}")
 if failed:
