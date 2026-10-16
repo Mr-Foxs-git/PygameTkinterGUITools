@@ -2,11 +2,14 @@
 PygameTkinterGUITools
 =====================
 Helper objects for making games and GUIs in pygame.
+Written by Adam Fox (Greater Shepparton Secondary College).
+© 2026 State of Victoria (Department of Education). MIT Licence - see LICENSE.
 
 GUI widgets work like tkinter / ttk:
     Label, Button, TextBox, Checkbutton, Radiobutton, Scale, Spinbox,
     Listbox, Message, Progressbar, Combobox, Separator,
     Frame, LabelFrame, Notebook, Popup
+    MessageBox, askyesno, askstring, askinteger ... (question boxes)
     IntVar, StringVar, BooleanVar, DoubleVar   (shared values)
     Style                                      (colours and fonts for everything)
 Game helpers: Animator, SpriteObject, Camera, ZoomCamera, TiledMap, World,
@@ -200,13 +203,13 @@ THEMES = {
               "accent": (100, 150, 255), "trough_color": (90, 90, 90),
               "focus_color": (255, 200, 0), "select_bg": (100, 150, 255),
               "select_fg": WHITE, "disabled_fg": (140, 140, 140)},
-        "Label": {"bg": None},
+        "Label": {"bg": None, "outline_color": BLACK, "shadow_color": (0, 0, 0, 160)},
         "Message": {"bg": None},
         "Button": {"fg": BLACK, "bg": (100, 150, 255), "hover_bg": (150, 200, 255),
                    "font_size": 30, "border_color": None,
                    "shadow_color": (0, 0, 0, 100)},
         "TextBox": {"fg": BLACK, "bg": (230, 230, 230), "border_color": (100, 100, 100),
-                    "label_fg": WHITE},
+                    "label_fg": WHITE, "placeholder_fg": (140, 140, 140)},
         "Checkbutton": {"bg": None, "box_bg": WHITE, "check_color": (40, 120, 220)},
         "Radiobutton": {"bg": None, "box_bg": WHITE, "check_color": (40, 120, 220)},
         "Scale": {"bg": None},
@@ -215,7 +218,7 @@ THEMES = {
         "Listbox": {"fg": BLACK, "bg": (230, 230, 230), "border_color": (100, 100, 100)},
         "Combobox": {"fg": BLACK, "bg": (230, 230, 230), "border_color": (100, 100, 100)},
         "Progressbar": {"bar_color": (80, 200, 120), "border_color": (200, 200, 200),
-                        "border_width": 2},
+                        "border_width": 2, "ghost_color": (250, 235, 170)},
         "Separator": {"fg": (150, 150, 150)},
         "Frame": {"bg": (60, 60, 60), "border_width": 2},
         "LabelFrame": {"bg": None, "border_width": 2},
@@ -275,6 +278,42 @@ THEMES = {
         "HeartsBar": {"heart_color": (255, 60, 160), "empty_color": (40, 40, 40),
                       "border_color": (255, 255, 255)},
     },
+    # Easy to see: black and white with bright yellow, thick borders and a
+    # slightly bigger font. Good for players with low vision and projectors.
+    "high_contrast": {
+        ".": {"fg": WHITE, "bg": BLACK, "font_size": 26, "border_color": WHITE,
+              "border_width": 3, "border_radius": 0, "accent": (255, 230, 0),
+              "trough_color": (60, 60, 60), "focus_color": (0, 255, 255),
+              "select_bg": (255, 230, 0), "select_fg": BLACK,
+              "disabled_fg": (170, 170, 170)},
+        "Label": {"outline_color": BLACK},
+        "Button": {"fg": BLACK, "bg": (255, 230, 0), "hover_bg": WHITE,
+                   "active_bg": (0, 255, 255), "font_size": 32, "border_color": WHITE,
+                   "border_width": 3},
+        "TextBox": {"fg": BLACK, "bg": WHITE, "border_color": (255, 230, 0),
+                    "label_fg": WHITE, "placeholder_fg": (90, 90, 90)},
+        "Checkbutton": {"box_bg": WHITE, "check_color": BLACK},
+        "Radiobutton": {"box_bg": WHITE, "check_color": BLACK},
+        "Spinbox": {"fg": BLACK, "bg": WHITE, "border_color": (255, 230, 0),
+                    "button_bg": (255, 230, 0)},
+        "Listbox": {"fg": BLACK, "bg": WHITE, "border_color": (255, 230, 0)},
+        "Combobox": {"fg": BLACK, "bg": WHITE, "border_color": (255, 230, 0)},
+        "Progressbar": {"bar_color": (255, 230, 0), "border_color": WHITE,
+                        "border_width": 3, "ghost_color": WHITE},
+        "Separator": {"fg": WHITE},
+        "Frame": {"bg": BLACK, "border_width": 3},
+        "LabelFrame": {"border_width": 3},
+        "ScrolledFrame": {"bg": BLACK, "border_width": 3},
+        "Table": {"fg": BLACK, "bg": WHITE, "border_color": (255, 230, 0),
+                  "heading_bg": (255, 230, 0)},
+        "Menu": {"fg": BLACK, "bg": WHITE, "border_color": BLACK, "font_size": 24,
+                 "select_bg": BLACK, "select_fg": (255, 230, 0)},
+        "Notebook": {"bg": BLACK, "tab_bg": (60, 60, 60), "border_width": 3},
+        "Popup": {"fg": WHITE, "bg": BLACK, "border_color": (255, 230, 0),
+                  "border_width": 4, "title_font_size": 28},
+        "HeartsBar": {"heart_color": (255, 230, 0), "empty_color": (60, 60, 60),
+                      "border_color": WHITE},
+    },
 }
 
 
@@ -283,7 +322,7 @@ class Style:
     Sets the colours and fonts of every widget in one place (like ttk.Style).
 
         style = Style()
-        style.theme_use("dark")                          # "light", "dark", "retro"
+        style.theme_use("dark")       # "light", "dark", "retro", "high_contrast"
         style.configure("Button", bg=(200, 50, 50), border_radius=10)
         style.configure(".", font_name="Arial")          # "." = every widget
         style.configure("Danger.Button", bg=(255, 0, 0)) # a named style...
@@ -357,12 +396,25 @@ class Widget:
         config(option=value, ...)            change options (like tkinter)
         cget("option")                       read an option (including Style values)
         show(), hide(), toggle_visibility()
+        show(fade_ms=300), hide(fade_ms=300) fade in / out (Frames, Popups and
+                                             other containers - see below)
+        slide_to(x, y, ms=300)               glide smoothly to a new position
 
     Options you leave out (None) come from the Style.
     offset is added to the position. Frames and Popups use it to move
     their children; you normally leave it out.
     state="disabled" greys the widget out and stops it reacting.
+
+    Fades and slides use the clock, so they need no update(tick) and keep
+    working while timers are paused (e.g. a pause menu). Fades show on
+    containers (Frame, LabelFrame, ScrolledFrame, Notebook, Popup,
+    MessageBox); other widgets just show / hide straight away.
+    slide_to() is for widgets placed with x, y (not grid / pack / place).
     """
+
+    _fade = None            # (start time, ms, "in" or "out") while fading
+    _slide = None           # (start time, ms, from x, from y, to x, to y) while sliding
+    _in_fade_layer = False
 
     def __init__(self, x, y, width=0, height=0, center=False, visible=True,
                  style=None, state="normal"):
@@ -395,6 +447,8 @@ class Widget:
 
     def get_rect(self, offset=(0, 0)):
         """The widget's rectangle on screen, after adding offset."""
+        if self._slide is not None:
+            self._move_slide()
         w, h = self._layout_size or (self.width, self.height)
         r = pg.Rect(0, 0, w, h)
         position = (self.x + offset[0], self.y + offset[1])
@@ -405,14 +459,91 @@ class Widget:
         return r
 
     # ---- showing and hiding ----
-    def show(self):
+    def show(self, fade_ms=0):
+        """Show the widget. fade_ms=300 fades it in (containers only)."""
         self.visible = True
+        if fade_ms and isinstance(self, Container):
+            self._fade = (pg.time.get_ticks(), fade_ms, "in")
+        else:
+            self._fade = None
 
-    def hide(self):
-        self.visible = False
+    def hide(self, fade_ms=0):
+        """
+        Hide the widget. fade_ms=300 fades it out first (containers only);
+        it stops taking clicks straight away and is hidden at the end.
+        """
+        if fade_ms and self.visible and isinstance(self, Container):
+            self._fade = (pg.time.get_ticks(), fade_ms, "out")
+        else:
+            self.visible = False
+            self._fade = None
 
-    def toggle_visibility(self):
-        self.visible = not self.visible
+    def toggle_visibility(self, fade_ms=0):
+        """Hide it if it is showing, show it if it is hidden (or fading out)."""
+        if not fade_ms:                       # the v1.0 way
+            self.visible = not self.visible
+            self._fade = None
+        elif self.visible and not self.closing:
+            self.hide(fade_ms)
+        else:
+            self.show(fade_ms)
+
+    @property
+    def closing(self):
+        """True while it is fading out after hide(fade_ms=...)."""
+        return self._fade is not None and self._fade[2] == "out"
+
+    def _fade_alpha(self):
+        """How see-through it is right now (0 - 255), or None if not fading."""
+        if self._fade is None:
+            return None
+        start, ms, direction = self._fade
+        t = (pg.time.get_ticks() - start) / ms
+        if t >= 1:                            # finished
+            self._fade = None
+            if direction == "out":
+                self.visible = False
+            return None
+        return int(255 * t) if direction == "in" else int(255 * (1 - t))
+
+    def _fade_layer(self, screen, offset):
+        """
+        While fading: draw the widget onto a see-through layer, then put that
+        on the screen partly see-through. Returns True if it drew (or the
+        fade-out has just finished), so draw() can stop there.
+        """
+        if self._in_fade_layer:
+            return False
+        alpha = self._fade_alpha()
+        if alpha is None:
+            return not self.visible           # a fade-out has just finished
+        layer = pg.Surface(screen.get_size(), pg.SRCALPHA)
+        self._in_fade_layer = True
+        try:
+            self.draw(layer, offset)
+        finally:
+            self._in_fade_layer = False
+        layer.set_alpha(alpha)
+        screen.blit(layer, (0, 0))
+        return True
+
+    def slide_to(self, x, y, ms=300):
+        """Glide smoothly to (x, y) over ms milliseconds (fast, then slowing down)."""
+        self._slide = (pg.time.get_ticks(), max(1, ms), self.x, self.y, x, y)
+
+    @property
+    def sliding(self):
+        """True while slide_to() is still moving it."""
+        return self._slide is not None
+
+    def _move_slide(self):
+        start, ms, from_x, from_y, to_x, to_y = self._slide
+        t = min(1.0, (pg.time.get_ticks() - start) / ms)
+        ease = 1 - (1 - t) ** 2               # "ease out": slows down at the end
+        self.x = round(from_x + (to_x - from_x) * ease)
+        self.y = round(from_y + (to_y - from_y) * ease)
+        if t >= 1:
+            self._slide = None
 
     @property
     def showing(self):
@@ -682,15 +813,30 @@ class Label(Widget):
         font_name, font_size
         center       - if True, (x, y) is the centre of the label
         style        - a named Style, e.g. "Title.Label"
+        outline      - thickness of an outline around the letters (0 = none),
+                       so text is easy to read over a busy game background
+        outline_color - outline colour (outline_colour also works)
+        shadow       - True to draw a shadow behind the text
+        shadow_offset - (x, y) distance of the shadow
+        shadow_color - shadow colour (shadow_colour also works)
+        justify      - "left", "center" or "right": how the lines line up
+                       when the text has more than one line
+
+    "\n" in the text starts a new line, like tkinter.
 
     Example:
         score = Label(20, 20, "Score: 0", fg=(255, 255, 0))
         score.config(text="Score: 10")
+        title = Label(20, 60, "Level 1", font_size=48, outline=3)
+        help_text = Label(20, 120, "Arrows to move\nSpace to jump", justify="center")
     """
 
     def __init__(self, x, y=0, text="", textvariable=None, fg=None, bg=None,
                  image=None, font_name=None, font_size=None,
-                 center=False, visible=True, style=None):
+                 center=False, visible=True, style=None,
+                 outline=0, outline_color=None, outline_colour=None,
+                 shadow=False, shadow_offset=(2, 2), shadow_color=None,
+                 shadow_colour=None, justify="left"):
         super().__init__(x, y, center=center, visible=visible, style=style)
         self.text = text
         self.textvariable = textvariable
@@ -699,16 +845,82 @@ class Label(Widget):
         self.image = image
         self.font_name = font_name
         self.font_size = font_size
+        self.outline = outline
+        self.outline_color = _pick(outline_color, outline_colour)
+        self.shadow = shadow
+        self.shadow_offset = shadow_offset
+        self.shadow_color = _pick(shadow_color, shadow_colour)
+        self.justify = justify
+        self._picture = None         # the drawn text, kept until something changes
+        self._picture_key = None
         self._refresh()
 
     def _get_text(self):
         return str(self.textvariable.get() if self.textvariable else self.text)
 
+    def _is_plain(self, text):
+        """One line, no outline, no shadow: drawn exactly like v1.0."""
+        return "\n" not in text and not self.outline and not self.shadow
+
     def _refresh(self):
         if self.image is not None:
             self.width, self.height = load_image(self.image).get_size()
-        else:
+        elif self._is_plain(self._get_text()):
             self.width, self.height = self._font().size(self._get_text())
+        else:
+            self.width, self.height = self._text_picture().get_size()
+
+    def _text_picture(self):
+        """
+        Draw the text (all its lines, outline and shadow) onto one picture.
+        It is kept and only drawn again when the text or an option changes,
+        so an outlined score Label costs nothing extra every frame.
+        """
+        font = self._font()
+        key = (self._get_text(), self.cget("fg"), self.cget("font_name"),
+               self.cget("font_size"), self.outline, self.cget("outline_color"),
+               self.shadow, tuple(self.shadow_offset), self.cget("shadow_color"),
+               self.justify)
+        if key == self._picture_key:
+            return self._picture
+
+        lines = self._get_text().split("\n")
+        line_height = font.get_linesize()
+        widths = [font.size(line)[0] for line in lines]
+        edge = self.outline                       # room for the outline on each side
+        shadow_x, shadow_y = self.shadow_offset if self.shadow else (0, 0)
+        width = max(widths) + 2 * edge + abs(shadow_x)
+        height = line_height * (len(lines) - 1) + font.get_height() + 2 * edge + abs(shadow_y)
+        picture = pg.Surface((max(1, width), max(1, height)), pg.SRCALPHA)
+        # Where the text itself goes (the shadow can stick out up or left too)
+        left = edge + max(0, -shadow_x)
+        top = edge + max(0, -shadow_y)
+
+        for i, line in enumerate(lines):
+            if self.justify == "center":
+                x = left + (max(widths) - widths[i]) // 2
+            elif self.justify == "right":
+                x = left + max(widths) - widths[i]
+            else:
+                x = left
+            y = top + i * line_height
+            if self.shadow:
+                colour = self.cget("shadow_color")
+                words = font.render(line, True, colour[:3])
+                if len(colour) == 4:
+                    words.set_alpha(colour[3])
+                picture.blit(words, (x + shadow_x, y + shadow_y))
+            if self.outline:
+                # Draw the words in the outline colour all around, then on top
+                words = font.render(line, True, self.cget("outline_color"))
+                for dx in range(-edge, edge + 1):
+                    for dy in range(-edge, edge + 1):
+                        if (dx or dy) and dx * dx + dy * dy <= edge * edge + 1:
+                            picture.blit(words, (x + dx, y + dy))
+            picture.blit(font.render(line, True, self.cget("fg")), (x, y))
+
+        self._picture, self._picture_key = picture, key
+        return picture
 
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
@@ -719,8 +931,10 @@ class Label(Widget):
             pg.draw.rect(screen, self.cget("bg"), r)
         if self.image is not None:
             screen.blit(load_image(self.image), r)
-        else:
+        elif self._is_plain(self._get_text()):
             screen.blit(self._font().render(self._get_text(), True, self.cget("fg")), r)
+        else:
+            screen.blit(self._text_picture(), r)
 
 
 # ================================
@@ -942,11 +1156,20 @@ class Button(Widget):
         center        - if True, (x, y) is the centre of the button
         state         - "disabled" to grey it out
         style         - a named Style, e.g. "Danger.Button"
+        active_bg     - button colour while it is held down (None = hover_bg)
+        active_image  - picture while it is held down
+        sound         - a SoundEffect (or a sound file name) played on each click
+        repeatdelay, repeatinterval - hold the button down and command runs
+                        again after repeatdelay ms, then every repeatinterval ms
+                        (like tkinter). 0 = off. Needs button.update(tick)
+                        (a Frame does that for you).
 
     Example:
         def start_game():
             print("Starting!")
         start = Button(100, 100, 150, 50, "Start", command=start_game)
+        plus = Button(100, 200, 50, 50, "+", command=add_one, sound="click.wav",
+                      active_bg=(60, 100, 200), repeatdelay=400, repeatinterval=80)
     """
 
     takes_focus = True
@@ -958,7 +1181,9 @@ class Button(Widget):
                  border_radius=None,
                  shadow=False, shadow_offset=(3, 3),
                  shadow_color=None, shadow_colour=None,
-                 center=False, visible=True, state="normal", style=None):
+                 center=False, visible=True, state="normal", style=None,
+                 active_bg=None, active_image=None, sound=None,
+                 repeatdelay=0, repeatinterval=0):
         super().__init__(x, y, width or 0, height or 0, center, visible, style, state)
         self._given_size = (width, height)     # None = fit the text
         self.text = text
@@ -976,6 +1201,16 @@ class Button(Widget):
         self.shadow = shadow
         self.shadow_offset = shadow_offset
         self.shadow_color = _pick(shadow_color, shadow_colour)
+        self.active_bg = active_bg
+        self.active_image = active_image
+        if isinstance(sound, str):
+            sound = SoundEffect(sound)          # a file name: load it once, here
+        self.sound = sound
+        self.repeatdelay = repeatdelay
+        self.repeatinterval = repeatinterval
+        self.pressed = False         # True while the mouse button is held down on it
+        self._held_ms = 0            # how long it has been held (for repeat)
+        self._next_repeat = 0
         self._refresh()
 
     def _refresh(self):
@@ -994,7 +1229,11 @@ class Button(Widget):
 
     def invoke(self):
         """Run the command, as if the button was clicked."""
-        if self.command and self.state != "disabled":
+        if self.state == "disabled":
+            return
+        if self.sound is not None:
+            self.sound.play()
+        if self.command:
             self.command()
 
     def focus_action(self, action):
@@ -1010,10 +1249,13 @@ class Button(Widget):
         self._refresh()
         r = self.get_rect(offset)
         hovered = self.is_hovered(offset) or self.focused
+        held = self.pressed and self.is_hovered(offset)
         radius = self.cget("border_radius") or 0
 
         if self.image is not None:
             picture = self.hover_image if hovered and self.hover_image is not None else self.image
+            if held and self.active_image is not None:
+                picture = self.active_image
             screen.blit(load_image(picture, r.size), r)
         else:
             # Shadow
@@ -1025,6 +1267,8 @@ class Button(Widget):
 
             # Button
             colour = self.cget("hover_bg") if hovered else self.cget("bg")
+            if held and self.cget("active_bg") is not None:
+                colour = self.cget("active_bg")
             pg.draw.rect(screen, colour, r, border_radius=radius)
 
             # Border
@@ -1040,10 +1284,29 @@ class Button(Widget):
         self._draw_focus(screen, r)
 
     def handle_event(self, event, offset=(0, 0)):
+        if event.type == pg.MOUSEBUTTONUP and getattr(event, "button", 1) == 1:
+            self.pressed = False         # let go: not returned as used, others need it too
         if self.active and _clicked(event, self.get_rect(offset)):
+            self._last_offset = offset
+            self.pressed = True
+            self._held_ms = 0
+            self._next_repeat = self.repeatdelay
             self.invoke()
             return True
         return False
+
+    def update(self, tick):
+        """Runs the command again while held (only with repeatdelay / repeatinterval)."""
+        if not self.active:
+            self.pressed = False
+        if not (self.pressed and self.repeatdelay and self.repeatinterval):
+            return
+        if not self.is_hovered(self._last_offset):
+            return                       # moved off the button: wait until back on it
+        self._held_ms += tick
+        while self._held_ms >= self._next_repeat:
+            self._next_repeat += self.repeatinterval
+            self.invoke()
 
 
 # ================================
@@ -1109,11 +1372,25 @@ class TextBox(Widget):
         on_enter       - function to run when Enter is pressed
         center         - if True, (x, y) is the centre of box + label
         state          - "disabled" to stop typing
+        show           - a character to draw instead of each letter, e.g. "*"
+                         for a password (get() still gives the real text).
+                         Kept in box.show_char, because box.show() is the
+                         method that makes the box visible.
+        placeholder    - grey hint text shown while the box is empty,
+                         e.g. "Type your name..." (colour: placeholder_fg)
+        allowed        - which keys can be typed: "digits", "letters", or a
+                         string of characters, e.g. "0123456789."
+                         (None = anything). Only stops typing - set_text()
+                         can still put anything in.
+        on_change      - function to run (no arguments) whenever the text
+                         changes, by typing or from your code
 
     Example:
         def submit():
             print("Hello", name_box.get())
         name_box = TextBox(100, 100, label="Name:", on_enter=submit)
+        pin_box = TextBox(100, 150, max_chars=4, show="*", allowed="digits",
+                          placeholder="PIN")
     """
 
     takes_focus = True
@@ -1122,8 +1399,11 @@ class TextBox(Widget):
                  fg=None, bg=None, border_color=None, border_colour=None,
                  font_name=None, font_size=None, padding=6,
                  label=None, label_fg=None, label_gap=10, label_position="left",
-                 on_enter=None, center=False, visible=True, state="normal", style=None):
+                 on_enter=None, center=False, visible=True, state="normal", style=None,
+                 show=None, placeholder=None, placeholder_fg=None, allowed=None,
+                 on_change=None):
         super().__init__(x, y, center=center, visible=visible, style=style, state=state)
+        self.on_change = None        # set at the end, so the starting text doesn't run it
         self.max_chars = max_chars
         self.textvariable = textvariable
         self.fg = fg
@@ -1137,6 +1417,10 @@ class TextBox(Widget):
         self.label_gap = label_gap
         self.label_position = label_position.lower()
         self.on_enter = on_enter
+        self.show_char = show        # not self.show - that is the show() method
+        self.placeholder = placeholder
+        self.placeholder_fg = placeholder_fg
+        self.allowed = allowed
 
         self._text = ""
         self.cursor_pos = 0
@@ -1145,6 +1429,7 @@ class TextBox(Widget):
         self.cursor_timer = 0
         self.typing = False         # True after clicking the box
         self._refresh()
+        self.on_change = on_change
 
     # The text is kept in the textvariable too, if there is one
     @property
@@ -1156,10 +1441,37 @@ class TextBox(Widget):
 
     @text.setter
     def text(self, value):
+        old = self._text
         self._text = str(value)[:self.max_chars]
         self.cursor_pos = min(self.cursor_pos, len(self._text))
         if self.textvariable is not None:
             self.textvariable.set(self._text)
+        if self._text != old and self.on_change:
+            self.on_change()
+
+    def _can_type(self, character):
+        """Is this character allowed? (see the allowed option)"""
+        if self.allowed is None:
+            return True
+        if self.allowed == "digits":
+            return character.isdigit()
+        if self.allowed == "letters":
+            return character.isalpha()
+        return character in self.allowed
+
+    def _shown_text(self):
+        """The text as drawn: with show="*" every letter becomes a *."""
+        if self.show_char:
+            return self.show_char[0] * len(self.text)
+        return self.text
+
+    def config(self, **options):
+        """Like Widget.config(); config(show="*") changes the hiding character."""
+        if "show" in options:
+            options["show_char"] = options.pop("show")
+        super().config(**options)
+
+    configure = config
 
     def _refresh(self):
         """Work out where the box and label go (relative to the top-left)."""
@@ -1220,6 +1532,8 @@ class TextBox(Widget):
             text = self.text
             if len(text) >= self.max_chars:
                 break
+            if not self._can_type(ch):
+                continue
             pos = self.cursor_pos
             self.text = text[:pos] + ch + text[pos:]
             self.cursor_pos = pos + 1
@@ -1298,15 +1612,23 @@ class TextBox(Widget):
         pg.draw.rect(screen, self.cget("bg"), box)
         pg.draw.rect(screen, self.cget("border_color"), box, 2)
 
-        # Text
-        text_surface = font.render(self.text, True, self._text_colour())
+        # Text (or the grey placeholder while it is empty)
+        shown = self._shown_text()
+        if not shown and self.placeholder and not self.typing:
+            text_surface = font.render(self.placeholder, True, self.cget("placeholder_fg"))
+            # Cut off a long hint so it stays inside the box
+            room = box.width - 2 * self.padding
+            if text_surface.get_width() > room:
+                text_surface = text_surface.subsurface((0, 0, room, text_surface.get_height()))
+        else:
+            text_surface = font.render(shown, True, self._text_colour())
         text_x = box.x + self.padding
         text_y = box.y + (box.height - text_surface.get_height()) // 2
         screen.blit(text_surface, (text_x, text_y))
 
-        # Cursor
+        # Cursor (measured on the shown text, so it lines up with the *s)
         if self.typing and self.cursor_visible:
-            cursor_x = text_x + font.size(self.text[:self.cursor_pos])[0]
+            cursor_x = text_x + font.size(shown[:self.cursor_pos])[0]
             pg.draw.line(screen, self.cget("fg"), (cursor_x, text_y),
                          (cursor_x, text_y + font.get_height()), 2)
         self._draw_focus(screen, box)
@@ -1843,15 +2165,22 @@ class Listbox(Widget):
         items     - starting list of items
         command   - function to run when an item is chosen
         fg, bg, select_fg, select_bg, border_color, font_name, font_size, style
+        selectmode - "single" (default): one item at a time.
+                     "multiple": each click ticks or unticks an item, so
+                     several can be chosen (like tkinter's MULTIPLE)
 
     Methods (like tkinter):
         insert("end", "Level 4")   delete(0)    get(2)    size()
         curselection()  -> (index,) of the chosen item, or ()
-        selection_set(1)
+                           (selectmode="multiple": every chosen index)
+        selection_set(1)    selection_clear()    selection_includes(1)
+        get_all_selected() -> a list of every chosen item
 
     Example:
         levels = Listbox(50, 50, 200, rows=5, items=["Level 1", "Level 2"])
         chosen = levels.get_selected()      # "Level 1" or None
+        toppings = Listbox(300, 50, 200, items=["Cheese", "Ham"], selectmode="multiple")
+        toppings.get_all_selected()         # ["Cheese", "Ham"]
     """
 
     takes_focus = True
@@ -1859,8 +2188,17 @@ class Listbox(Widget):
     def __init__(self, x, y=0, width=200, rows=5, items=None, command=None,
                  fg=None, bg=None, select_fg=None, select_bg=None,
                  border_color=None, border_colour=None, font_name=None, font_size=None,
-                 center=False, visible=True, state="normal", style=None):
+                 center=False, visible=True, state="normal", style=None,
+                 selectmode="single"):
         super().__init__(x, y, width, 0, center, visible, style, state)
+        if selectmode == "browse":
+            selectmode = "single"       # tkinter's name for the normal mode
+        if selectmode not in ("single", "multiple"):
+            raise ValueError(f"selectmode must be 'single' or 'multiple', not "
+                             f"'{selectmode}' (for Shift / Ctrl-click choosing, "
+                             f"use 'multiple': each click ticks or unticks an item)")
+        self.selectmode = selectmode
+        self.chosen = set()             # selectmode="multiple": every chosen index
         self.rows = rows
         self.items = list(items) if items else []
         self.command = command
@@ -1900,6 +2238,10 @@ class Listbox(Widget):
         del self.items[first:last + 1]
         if self.selected is not None and self.selected >= len(self.items):
             self.selected = None
+        # Chosen items after the deleted ones move up to their new places
+        removed = last - first + 1
+        self.chosen = {i if i < first else i - removed
+                       for i in self.chosen if not first <= i <= last}
         self.scroll = max(0, min(self.scroll, len(self.items) - self.rows))
 
     def get(self, index):
@@ -1909,18 +2251,31 @@ class Listbox(Widget):
         return len(self.items)
 
     def curselection(self):
+        if self.selectmode == "multiple":
+            return tuple(sorted(self.chosen))
         return () if self.selected is None else (self.selected,)
 
     def get_selected(self):
-        """The chosen item, or None."""
+        """The chosen item (the last one clicked), or None."""
         return None if self.selected is None else self.items[self.selected]
+
+    def get_all_selected(self):
+        """A list of every chosen item (useful with selectmode="multiple")."""
+        return [self.items[i] for i in self.curselection()]
 
     def selection_set(self, index):
         self.selected = index
+        if self.selectmode == "multiple":
+            self.chosen.add(index)
         self.see(index)
 
     def selection_clear(self):
         self.selected = None
+        self.chosen.clear()
+
+    def selection_includes(self, index):
+        """True if item index is chosen."""
+        return index in self.curselection()
 
     def see(self, index):
         """Scroll so item index can be seen."""
@@ -1938,7 +2293,11 @@ class Listbox(Widget):
 
     def _choose(self, index):
         if 0 <= index < len(self.items):
-            self.selection_set(index)
+            if self.selectmode == "multiple" and index in self.chosen:
+                self.chosen.discard(index)        # clicked again: untick it
+                self.selected = index
+            else:
+                self.selection_set(index)
             if self.command:
                 self.command()
 
@@ -1946,6 +2305,17 @@ class Listbox(Widget):
         if not self.items:
             return False
         current = -1 if self.selected is None else self.selected
+        if self.selectmode == "multiple":
+            # Arrows move the outline, Enter / Space ticks or unticks
+            if action in ("down", "up"):
+                step = 1 if action == "down" else -1
+                self.selected = max(0, min(len(self.items) - 1, current + step))
+                self.see(self.selected)
+                return True
+            if action == "activate" and self.selected is not None:
+                self._choose(self.selected)
+                return True
+            return False
         if action == "down":
             self._choose(min(len(self.items) - 1, current + 1))
             return True
@@ -1990,7 +2360,13 @@ class Listbox(Widget):
                 break
             row_rect = pg.Rect(r.x + 2, r.y + 2 + row * row_h, r.width - 4, row_h)
             colour = self._text_colour()
-            if index == self.selected:
+            if self.selectmode == "multiple":
+                chosen = index in self.chosen
+                if index == self.selected and self.focused:
+                    pg.draw.rect(screen, self.cget("select_bg"), row_rect, 2)
+            else:
+                chosen = index == self.selected
+            if chosen:
                 pg.draw.rect(screen, self.cget("select_bg"), row_rect)
                 colour = self.cget("select_fg")
             surface = font.render(str(self.items[index]), True, colour)
@@ -2026,10 +2402,15 @@ class Combobox(Widget):
         command      - function to run when a choice is made
         max_rows     - most choices shown at once when open
         fg, bg, select_fg, select_bg, border_color, font_name, font_size, style
+        editable     - True: the player can also type. The list only shows
+                       the choices that contain what was typed; Enter picks
+                       the highlighted one, or keeps the typed words if
+                       nothing matches. False (default) = choose only.
 
     Example:
         hero = StringVar("Knight")
         Combobox(50, 50, 200, values=["Knight", "Wizard", "Archer"], textvariable=hero)
+        Combobox(50, 100, 200, values=countries, editable=True)   # type to search
     """
 
     takes_focus = True
@@ -2037,8 +2418,10 @@ class Combobox(Widget):
     def __init__(self, x, y=0, width=200, values=None, textvariable=None, command=None,
                  max_rows=6, fg=None, bg=None, select_fg=None, select_bg=None,
                  border_color=None, border_colour=None, font_name=None, font_size=None,
-                 center=False, visible=True, state="normal", style=None):
+                 center=False, visible=True, state="normal", style=None, editable=False):
         super().__init__(x, y, width, 0, center, visible, style, state)
+        self.editable = editable
+        self.typed = None            # editable: the words typed so far (None = not typing)
         self.values = list(values) if values else []
         if textvariable is None:
             textvariable = StringVar(self.values[0] if self.values else "")
@@ -2076,15 +2459,69 @@ class Combobox(Widget):
             return self.values.index(value) if value in self.values else -1
         self.set(self.values[index])
 
+    def _shown_values(self):
+        """The choices in the open list (editable: only the ones that match)."""
+        if not self.typed:
+            return self.values
+        words = self.typed.lower()
+        return [value for value in self.values if words in str(value).lower()]
+
     def _choose(self, index):
+        """Choose item index of the list that is showing."""
         old = self.get()
-        self.current(index)
+        self.set(self._shown_values()[index])
         self.is_open = False
+        self.typed = None
         if self.command and self.get() != old:
             self.command()
 
+    def _open(self):
+        self.is_open = True
+        self.typed = "" if self.editable else None
+        self.highlight = max(0, self.current())
+        if self.editable:                     # start with the chosen one in view
+            self.scroll = max(0, self.highlight - self.max_rows + 1)
+
+    def _close(self):
+        self.is_open = False
+        self.typed = None
+
+    def _move_highlight(self, direction):
+        shown = self._shown_values()
+        self.highlight = max(0, min(len(shown) - 1, self.highlight + direction))
+        if self.highlight < self.scroll:
+            self.scroll = self.highlight
+        elif self.highlight >= self.scroll + self.max_rows:
+            self.scroll = self.highlight - self.max_rows + 1
+
+    def _type_key(self, event):
+        """editable=True: typing into the open box. Returns True if used."""
+        if event.key in (pg.K_RETURN, pg.K_KP_ENTER):
+            if self._shown_values():
+                self._choose(self.highlight)
+            else:                                # nothing matches: keep the typed words
+                old = self.get()
+                if self.typed:
+                    self.set(self.typed)
+                self._close()
+                if self.command and self.get() != old:
+                    self.command()
+        elif event.key == pg.K_ESCAPE:
+            self._close()
+        elif event.key in (pg.K_DOWN, pg.K_UP):
+            self._move_highlight(1 if event.key == pg.K_DOWN else -1)
+        elif event.key == pg.K_BACKSPACE:
+            self.typed = self.typed[:-1]
+            self.highlight, self.scroll = 0, 0
+        elif event.unicode and event.unicode.isprintable():
+            self.typed += event.unicode
+            self.highlight, self.scroll = 0, 0
+        else:
+            return False
+        return True
+
     def _list_rect(self, r):
-        rows = min(self.max_rows, len(self.values))
+        rows = max(1, min(self.max_rows, len(self._shown_values())))
         return pg.Rect(r.x, r.bottom, r.width, rows * self._row_height() + 4)
 
     def focus_action(self, action):
@@ -2092,19 +2529,17 @@ class Combobox(Widget):
             return False
         if action == "activate":
             if self.is_open:
-                self._choose(self.highlight)
+                if self._shown_values():
+                    self._choose(self.highlight)
+                else:
+                    self._close()
             else:
-                self.is_open = True
-                self.highlight = max(0, self.current())
+                self._open()
             return True
         if action in ("down", "up"):
             direction = 1 if action == "down" else -1
             if self.is_open:
-                self.highlight = max(0, min(len(self.values) - 1, self.highlight + direction))
-                if self.highlight < self.scroll:
-                    self.scroll = self.highlight
-                elif self.highlight >= self.scroll + self.max_rows:
-                    self.scroll = self.highlight - self.max_rows + 1
+                self._move_highlight(direction)
             else:
                 index = max(0, min(len(self.values) - 1, self.current() + direction))
                 self._choose(index)
@@ -2113,30 +2548,32 @@ class Combobox(Widget):
 
     def handle_event(self, event, offset=(0, 0)):
         if not self.active:
-            self.is_open = False
+            self._close()
             return False
         r = self.get_rect(offset)
         if self.is_open:
             lst = self._list_rect(r)
+            shown = self._shown_values()
+            if self.editable and event.type == pg.KEYDOWN:
+                return self._type_key(event)
             if event.type == pg.MOUSEMOTION and lst.collidepoint(event.pos):
                 self.highlight = self.scroll + (event.pos[1] - lst.y - 2) // self._row_height()
                 return True
             if event.type == pg.MOUSEWHEEL:
-                most = max(0, len(self.values) - self.max_rows)
+                most = max(0, len(shown) - self.max_rows)
                 self.scroll = max(0, min(most, self.scroll - event.y))
                 return True
             if event.type == pg.MOUSEBUTTONDOWN and event.button == 1:
                 if lst.collidepoint(event.pos):
                     index = self.scroll + (event.pos[1] - lst.y - 2) // self._row_height()
-                    if 0 <= index < len(self.values):
+                    if 0 <= index < len(shown):
                         self._choose(index)
-                else:
-                    self.is_open = False
+                elif not (self.editable and r.collidepoint(event.pos)):
+                    self._close()      # (editable: clicking the box keeps typing)
                 return True            # clicks while open never reach other widgets
             return False
         if _clicked(event, r) and self.values:
-            self.is_open = True
-            self.highlight = max(0, self.current())
+            self._open()
             return True
         return False
 
@@ -2148,8 +2585,19 @@ class Combobox(Widget):
         font = self._font()
         pg.draw.rect(screen, self.cget("bg"), r)
         pg.draw.rect(screen, self.cget("border_color"), r, 2)
-        surface = font.render(str(self.get()), True, self._text_colour())
-        screen.blit(surface, (r.x + 6, r.centery - surface.get_height() // 2))
+        if self.typed is not None and self.is_open:
+            # editable and typing: show the typed words and a cursor
+            # (the current value in grey until something is typed)
+            if self.typed:
+                surface = font.render(self.typed, True, self._text_colour())
+            else:
+                surface = font.render(str(self.get()), True, self.cget("disabled_fg"))
+            screen.blit(surface, (r.x + 6, r.centery - surface.get_height() // 2))
+            cursor_x = r.x + 6 + (surface.get_width() if self.typed else 0)
+            pg.draw.line(screen, self.cget("fg"), (cursor_x, r.y + 6), (cursor_x, r.bottom - 6), 2)
+        else:
+            surface = font.render(str(self.get()), True, self._text_colour())
+            screen.blit(surface, (r.x + 6, r.centery - surface.get_height() // 2))
         # Arrow
         cx, cy = r.right - 14, r.centery
         pg.draw.polygon(screen, self._text_colour(),
@@ -2166,17 +2614,21 @@ class Combobox(Widget):
         lst = self._list_rect(r)
         font = self._font()
         row_h = self._row_height()
+        shown = self._shown_values()
         pg.draw.rect(screen, self.cget("bg"), lst)
-        for row in range(min(self.max_rows, len(self.values))):
+        if not shown:                         # editable: nothing matches what was typed
+            surface = font.render("(no match - Enter keeps it)", True, self.cget("disabled_fg"))
+            screen.blit(surface, (lst.x + 6, lst.y + 4))
+        for row in range(min(self.max_rows, len(shown))):
             index = self.scroll + row
-            if index >= len(self.values):
+            if index >= len(shown):
                 break
             row_rect = pg.Rect(lst.x + 2, lst.y + 2 + row * row_h, lst.width - 4, row_h)
             colour = self.cget("fg")
             if index == self.highlight:
                 pg.draw.rect(screen, self.cget("select_bg"), row_rect)
                 colour = self.cget("select_fg")
-            surface = font.render(str(self.values[index]), True, colour)
+            surface = font.render(str(shown[index]), True, colour)
             screen.blit(surface, (row_rect.x + 4, row_rect.centery - surface.get_height() // 2))
         pg.draw.rect(screen, self.cget("border_color"), lst, 2)
 
@@ -2205,11 +2657,22 @@ class Progressbar(Widget):
         border_color, border_width, border_radius
         show_text   - True to show the percentage in the bar
         bar_image, trough_image - optional pictures for the full and empty parts
+        low_color   - bar colour when it is nearly empty (None = never changes)
+        low_at      - how empty counts as "nearly empty": 0.25 = a quarter left
+        animate     - True: when the value drops, the lost part stays for a
+                      moment as a light "ghost", then shrinks away; when it
+                      goes up, the bar slides up. Works without update(tick).
+        ghost_color - colour of the ghost part
 
     Example:
         health = Progressbar(20, 20, 200, maximum=100, value=100, bar_color=(220, 50, 50))
         health.config(value=health.value - 10)     # or health.step(-10)
+        energy = Progressbar(20, 60, 200, value=100, low_color=(220, 50, 50),
+                             animate=True)
     """
+
+    GHOST_WAIT = 400        # ms the ghost stays still before shrinking
+    SLIDE_MS = 600          # ms to slide from empty to full (animate=True)
 
     def __init__(self, x, y=0, length=200, thickness=20, orient="horizontal",
                  maximum=100, value=0, variable=None, mode="determinate",
@@ -2217,7 +2680,9 @@ class Progressbar(Widget):
                  border_color=None, border_colour=None, border_width=None,
                  border_radius=None, show_text=False, fg=None,
                  bar_image=None, trough_image=None, font_name=None, font_size=None,
-                 center=False, visible=True, style=None):
+                 center=False, visible=True, style=None,
+                 low_color=None, low_colour=None, low_at=0.25, animate=False,
+                 ghost_color=None, ghost_colour=None):
         super().__init__(x, y, center=center, visible=visible, style=style)
         self.length = length
         self.thickness = thickness
@@ -2238,6 +2703,14 @@ class Progressbar(Widget):
         self.font_size = font_size
         self.running = mode == "indeterminate"
         self._bounce = 0.0           # position of the moving block (indeterminate)
+        self.low_color = _pick(low_color, low_colour)
+        self.low_at = low_at
+        self.animate = animate
+        self.ghost_color = _pick(ghost_color, ghost_colour)
+        self._shown = None           # animate=True: the value the bar shows right now
+        self._ghost = None           # animate=True: where the ghost ends
+        self._ghost_since = 0
+        self._last_draw = 0
         self._refresh()
 
     def _refresh(self):
@@ -2274,6 +2747,35 @@ class Progressbar(Widget):
         if self.mode == "indeterminate" and self.running:
             self._bounce = (self._bounce + tick / 1500) % 2      # 1.5 s each way
 
+    def _animate_values(self):
+        """
+        animate=True: move the shown value and the ghost towards the real value.
+        Uses the clock (not update), so it works in draw() on its own.
+        """
+        now = pg.time.get_ticks()
+        target = self.value
+        if self._shown is None:                 # first time: no animation
+            self._shown, self._ghost, self._last_draw = target, target, now
+        ms = min(100, now - self._last_draw)    # a long pause doesn't jump
+        self._last_draw = now
+        step = self.maximum * ms / self.SLIDE_MS
+        if target < self._shown:                # lost some: the ghost keeps the old value
+            self._ghost = max(self._ghost, self._shown)
+            self._shown = target
+            self._ghost_since = now
+        elif target > self._shown:              # gained some: slide up
+            self._shown = min(target, self._shown + step)
+        if self._ghost > self._shown and now - self._ghost_since > self.GHOST_WAIT:
+            self._ghost = max(self._shown, self._ghost - step)
+        self._ghost = max(self._ghost, self._shown)
+
+    def _part_rect(self, r, start, size):
+        """The rect for a part of the bar (start and size are fractions 0 - 1)."""
+        if self.orient == "vertical":
+            return pg.Rect(r.x, r.bottom - int(r.height * (start + size)),
+                           r.width, int(r.height * size))
+        return pg.Rect(r.x + int(r.width * start), r.y, int(r.width * size), r.height)
+
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
@@ -2289,23 +2791,37 @@ class Progressbar(Widget):
             pg.draw.rect(screen, self.cget("trough_color"), r, border_radius=radius)
 
         # Filled part
+        ghost = None
         if self.mode == "indeterminate":
             block = 0.3
             position = self._bounce if self._bounce <= 1 else 2 - self._bounce
             start, size = position * (1 - block), block
+        elif self.animate and self.maximum:
+            self._animate_values()
+            start, size = 0, self._shown / self.maximum
+            ghost = self._part_rect(r, size, (self._ghost - self._shown) / self.maximum)
         else:
             start, size = 0, self.fraction()
-        if vertical:
-            fill = pg.Rect(r.x, r.bottom - int(r.height * (start + size)),
-                           r.width, int(r.height * size))
-        else:
-            fill = pg.Rect(r.x + int(r.width * start), r.y, int(r.width * size), r.height)
+        fill = self._part_rect(r, start, size)
+
+        # The ghost: the part just lost, drawn lighter (animate=True)
+        if ghost is not None and ghost.width > 0 and ghost.height > 0:
+            if self.bar_image is not None:
+                faded = load_image(self.bar_image, r.size).copy()
+                faded.set_alpha(110)
+                screen.blit(faded, ghost, area=ghost.move(-r.x, -r.y))
+            else:
+                pg.draw.rect(screen, self.cget("ghost_color"), ghost, border_radius=radius)
+
         if fill.width > 0 and fill.height > 0:
             if self.bar_image is not None:
                 full = load_image(self.bar_image, r.size)
                 screen.blit(full, fill, area=fill.move(-r.x, -r.y))
             else:
-                pg.draw.rect(screen, self.cget("bar_color"), fill, border_radius=radius)
+                colour = self.cget("bar_color")
+                if self.low_color is not None and self.fraction() <= self.low_at:
+                    colour = self.low_color          # nearly empty: warning colour
+                pg.draw.rect(screen, colour, fill, border_radius=radius)
 
         # Border and text
         border_width = self.cget("border_width") or 0
@@ -2393,6 +2909,8 @@ class Container(Widget):
     def handle_event(self, event, offset=(0, 0)):
         """Pass the event to the children. Returns True if one of them used it."""
         if not self.visible:
+            return False
+        if self.closing:                     # fading out: no more clicks
             return False
         self._last_offset = offset
         self._arrange()
@@ -2810,6 +3328,8 @@ class Frame(Container):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
+        if self._fade_layer(screen, offset):     # fading in / out
+            return
         self._last_offset = offset
         self._arrange()
         self._draw_box(screen, self.get_rect(offset))
@@ -2974,6 +3494,8 @@ class ScrolledFrame(Frame):
     def handle_event(self, event, offset=(0, 0)):
         if not self.visible:
             return False
+        if self.closing:                     # fading out: no more clicks
+            return False
         self._last_offset = offset
         self._arrange()
         v = self._viewport(offset)
@@ -3025,6 +3547,8 @@ class ScrolledFrame(Frame):
 
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
+            return
+        if self._fade_layer(screen, offset):     # fading in / out
             return
         self._last_offset = offset
         self._arrange()
@@ -4160,6 +4684,8 @@ class LabelFrame(Frame):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
+        if self._fade_layer(screen, offset):     # fading in / out
+            return
         self._last_offset = offset
         self._arrange()
         r = self.get_rect(offset)
@@ -4278,6 +4804,8 @@ class Notebook(Container):
     def handle_event(self, event, offset=(0, 0)):
         if not self.visible:
             return False
+        if self.closing:                     # fading out: no more clicks
+            return False
         if not self.has_open_popup():
             for i, tab in enumerate(self._tab_rects(self.get_rect(offset))):
                 if _clicked(event, tab):
@@ -4287,6 +4815,8 @@ class Notebook(Container):
 
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
+            return
+        if self._fade_layer(screen, offset):     # fading in / out
             return
         self._last_offset = offset
         self._arrange()
@@ -4358,12 +4888,16 @@ class Popup(Container):
     def handle_event(self, event, offset=(0, 0)):
         if not self.visible:
             return False
+        if self.closing:                     # fading out: no more clicks
+            return False
         if self.close_button.handle_event(event, self.get_rect(offset).topleft):
             return True
         return super().handle_event(event, offset)
 
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
+            return
+        if self._fade_layer(screen, offset):     # fading in / out
             return
         self._last_offset = offset
         self.top_space = self._title_space()
@@ -4453,14 +4987,20 @@ class MessageBox(Popup):
         x, y     - centre of the box (None = the middle of the window)
         width    - width in pixels (the height fits the message)
         type_speed, type_sound - type the message out (see Message)
+        entry    - a TextBox to show under the message, so the player can
+                   type an answer (askstring() / askinteger() do this for you)
         plus every Popup option (fg, bg, border_color, title_font_size, ...)
+
+    Ask the player to type something (like tkinter's simpledialog):
+        askstring(title, prompt, command)        the text, or None (Cancel)
+        askinteger(title, prompt, command)       a whole number, or None
     """
 
     BUTTON_HEIGHT = 40
 
     def __init__(self, title="Message", message="", buttons=("OK",), command=None,
                  x=None, y=None, width=380, font_size=None, type_speed=None,
-                 type_sound=None, **popup_options):
+                 type_sound=None, entry=None, **popup_options):
         popup_options.setdefault("pad_x", 16)
         super().__init__(x or 0, y or 0, width, 100, title, center=True, **popup_options)
         self.message = message
@@ -4475,6 +5015,7 @@ class MessageBox(Popup):
         self.buttons = [Button(0, 0, 10, self.BUTTON_HEIGHT, word, font_size=24,
                                command=lambda word=word: self._answer(word))
                         for word in buttons]
+        self.entry = entry             # a TextBox to type into (or None)
         self._place_parts()
 
     def _place_parts(self):
@@ -4486,6 +5027,11 @@ class MessageBox(Popup):
         self.top_space = self._title_space()
         top = self.top_space + 10
         button_y = top + self.text.height + 20
+        if self.entry is not None:
+            # The typing box goes between the message and the buttons
+            self.entry.x = self.pad_x
+            self.entry.y = top + self.text.height + 14
+            button_y = self.entry.y + self.entry.height + 16
         for i, button in enumerate(self.buttons):
             button.x = self.pad_x + i * (button_width + gap)
             button.y = button_y
@@ -4494,13 +5040,15 @@ class MessageBox(Popup):
         self.text.x, self.text.y = self.pad_x, top
         self.height = button_y + self.BUTTON_HEIGHT + 16
 
-    def show(self, message=None):
-        """Open the box (optionally with a new message)."""
+    def show(self, message=None, fade_ms=0):
+        """Open the box (optionally with a new message). fade_ms=300 fades it in."""
         if message is not None:
             self.message = message
         self.result = None
         self.text.restart()                   # type it out again (if type_speed)
-        super().show()
+        if self.entry is not None:
+            self.entry.typing = True          # ready to type straight away
+        super().show(fade_ms)
 
     def _answer(self, answer):
         self.result = answer
@@ -4515,17 +5063,27 @@ class MessageBox(Popup):
     def handle_event(self, event, offset=(0, 0)):
         if not self.visible:
             return False
+        if self.closing:                     # fading out: no more clicks
+            return False
         self._place_on_screen()
         self._place_parts()
         if self.text.handle_event(event):     # still typing: show the rest first
             return True
+        corner = self.get_rect(offset).topleft
+        if self.entry is not None:
+            if event.type == pg.KEYDOWN and event.key not in (pg.K_ESCAPE, pg.K_RETURN,
+                                                               pg.K_KP_ENTER):
+                self.entry.typing = True
+                self.entry.handle_event(event, corner)
+                return True                   # letters go into the box
+            if event.type == pg.MOUSEBUTTONDOWN:
+                self.entry.handle_event(event, corner)
         if event.type == pg.KEYDOWN:
             if event.key == pg.K_ESCAPE:
                 self._answer(None)
             elif event.key in (pg.K_RETURN, pg.K_KP_ENTER) and self.buttons:
                 self._answer(self.buttons[0].text)
             return True                       # keys don't reach the game
-        corner = self.get_rect(offset).topleft
         if self.close_button.handle_event(event, corner):
             return True
         for button in self.buttons:
@@ -4539,15 +5097,21 @@ class MessageBox(Popup):
         super().update(tick)
         if self.visible:
             self.text.update(tick)
+            if self.entry is not None:
+                self.entry.update(tick)       # the typing cursor blinks
 
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
+            return
+        if self._fade_layer(screen, offset):     # fading in / out
             return
         self._place_on_screen()
         self._place_parts()
         super().draw(screen, offset)
         corner = self.get_rect(offset).topleft
         self.text.draw(screen, corner)
+        if self.entry is not None:
+            self.entry.draw(screen, corner)
         for button in self.buttons:
             button.draw(screen, corner)
 
@@ -4583,6 +5147,87 @@ def askokcancel(title, message, command=None, **options):
 def showinfo(title, message, command=None, **options):
     """A message with an OK button. command (if given) gets "ok"."""
     return _ask(title, message, ("OK",), {"OK": "ok", None: "ok"}, command, **options)
+
+
+def askstring(title, prompt, command=None, initialvalue="", max_chars=20, show=None,
+              **options):
+    """
+    A box the player types into (like tkinter's simpledialog.askstring).
+    command gets the text typed, or None if they pressed Cancel / X / Escape.
+
+        def got_name(name):
+            if name:
+                scores.add(name, score)
+        name_box = askstring("New high score!", "Enter your name:", command=got_name)
+        name_box.handle_event(event)    # FIRST in handle_inputs()
+        name_box.update(tick)           # makes the cursor blink
+        name_box.draw(screen)           # LAST in draw_game()
+
+    show="*" hides the letters (for a password).
+    """
+    entry = TextBox(0, 0, max_chars=max_chars, text=initialvalue, show=show)
+
+    def answer(word):
+        if command:
+            _call_with_answer(command, entry.get() if word == "OK" else None)
+
+    options.setdefault("width", max(380, entry.width + 32))
+    box = MessageBox(title, prompt, buttons=("OK", "Cancel"), command=answer,
+                     entry=entry, **options)
+    box.show()
+    return box
+
+
+def askinteger(title, prompt, command=None, initialvalue=None, minvalue=None,
+               maxvalue=None, max_chars=10, **options):
+    """
+    Like askstring(), but only whole numbers can be typed, and command gets
+    an int (or None if they pressed Cancel / X / Escape).
+
+        def got_age(age):
+            if age is not None:
+                print("You are", age)
+        age_box = askinteger("Age", "How old are you?", command=got_age,
+                             minvalue=5, maxvalue=99)
+
+    If the number is outside minvalue / maxvalue, the box stays open and
+    says which numbers are allowed.
+    """
+    allowed = "-0123456789" if minvalue is None or minvalue < 0 else "digits"
+    start = "" if initialvalue is None else str(initialvalue)
+    entry = TextBox(0, 0, max_chars=max_chars, text=start, allowed=allowed)
+
+    def answer(word):
+        if word != "OK":
+            if command:
+                _call_with_answer(command, None)
+            return
+        try:
+            number = int(entry.get())
+        except ValueError:
+            number = None
+        too_small = number is not None and minvalue is not None and number < minvalue
+        too_big = number is not None and maxvalue is not None and number > maxvalue
+        if number is None or too_small or too_big:
+            # Not a number we can use: keep the box open and say why
+            if minvalue is not None and maxvalue is not None:
+                rule = f"Type a whole number from {minvalue} to {maxvalue}."
+            elif minvalue is not None:
+                rule = f"Type a whole number of at least {minvalue}."
+            elif maxvalue is not None:
+                rule = f"Type a whole number up to {maxvalue}."
+            else:
+                rule = "Type a whole number."
+            box.show(f"{prompt}\n{rule}")
+            return
+        if command:
+            _call_with_answer(command, number)
+
+    options.setdefault("width", max(380, entry.width + 32))
+    box = MessageBox(title, prompt, buttons=("OK", "Cancel"), command=answer,
+                     entry=entry, **options)
+    box.show()
+    return box
 
 
 # ================================
@@ -8421,6 +9066,9 @@ class Health:
         player.health = Health(100, invincible_ms=800, on_death=game_over, bar=health_bar)
         player.health.damage(10)
         if player.health.is_dead(): ...
+
+    A small bar floating above an enemy (moves with it and the camera):
+        enemy.health.draw_bar(screen, enemy, camera)     # in draw_game()
     """
 
     def __init__(self, maximum=100, value=None, invincible_ms=0, on_damage=None,
@@ -8489,6 +9137,39 @@ class Health:
         if self.regen_per_second and not self.is_dead() and self.value < self.maximum:
             self.value = min(self.maximum, self.value + self.regen_per_second * tick / 1000)
             self._update_bar()
+
+    def draw_bar(self, screen, sprite, camera=None, width=None, height=6, gap=6,
+                 hide_when_full=False, **bar_options):
+        """
+        Draw a small health bar centred above sprite (anything with a .rect).
+
+            for enemy in enemies:
+                enemy.health.draw_bar(screen, enemy, camera)
+
+        width          - bar width (None = as wide as the sprite)
+        height         - bar thickness
+        gap            - space between the bar and the top of the sprite
+        hide_when_full - True: only show the bar once it has been hurt
+        Any Progressbar option also works, e.g. low_color=(255, 0, 0),
+        animate=True, bar_color=(255, 200, 0).
+        """
+        if hide_when_full and self.value >= self.maximum:
+            return
+        rect = camera.apply(sprite.rect) if camera else sprite.rect
+        width = width or rect.width
+        bar = getattr(self, "_floating_bar", None)
+        if bar is None:
+            # Made once and kept, so animate=True can remember the last value
+            bar_options.setdefault("border_width", 1)
+            bar = Progressbar(0, 0, length=width, thickness=height,
+                              maximum=self.maximum, value=self.value, **bar_options)
+            self._floating_bar = bar
+        bar.config(length=width, thickness=height)
+        bar.maximum = self.maximum
+        bar.value = self.value
+        bar.x = rect.centerx - width // 2
+        bar.y = rect.top - gap - height
+        bar.draw(screen)
 
 
 class HeartsBar(Widget):

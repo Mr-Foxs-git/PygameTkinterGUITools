@@ -99,6 +99,7 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Show text, a score or a timer | [`label_example.py`](examples/label_example.py) |
 | Make clickable buttons | [`button_example.py`](examples/button_example.py) |
 | Let the player type (e.g. their name) | [`textbox_example.py`](examples/textbox_example.py) |
+| A form: passwords, hints, numbers only, type-to-search lists, choose several, hold-to-repeat buttons, "type your name" boxes | [`form_example.py`](examples/form_example.py) |
 | Make a menu that shows / hides | [`frame_example.py`](examples/frame_example.py) |
 | Show a pop-up message (Game Over...) | [`popup_example.py`](examples/popup_example.py) |
 | Ask Yes / No / Cancel, edit a table like a spreadsheet | [`shop_editor_example.py`](examples/shop_editor_example.py) |
@@ -109,6 +110,7 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Dialogue that types out letter by letter, with a typing sound | [`typewriter_example.py`](examples/typewriter_example.py) |
 | Health, energy and loading bars | [`progressbar_example.py`](examples/progressbar_example.py) |
 | Health as a row of hearts (Zelda style) | [`hearts_example.py`](examples/hearts_example.py) |
+| Game-screen text and bars: outlined text, bars that go red, health bars over enemies, a fading pause menu, high contrast | [`hud_example.py`](examples/hud_example.py) |
 | Change how everything looks (themes, images) | [`style_example.py`](examples/style_example.py) |
 | A pause menu with tabs, used with the keyboard | [`settings_menu_example.py`](examples/settings_menu_example.py) |
 | Sounds on key presses (pressed vs held keys) | [`keyboard_sound_example.py`](examples/keyboard_sound_example.py) |
@@ -176,6 +178,7 @@ and move, hide and update with it.
 | `TextBox` | A box the player can type into (like tkinter `Entry`) |
 | `Popup` | A pop-up window with a title and close button |
 | `MessageBox`, `askyesno()`, `askyesnocancel()`, `askokcancel()`, `showinfo()` | Ready-made question boxes (like tkinter's `messagebox`) |
+| `askstring()`, `askinteger()` | Question boxes the player types into (like tkinter's `simpledialog`) |
 | `Checkbutton` | A tick box (on / off) |
 | `Radiobutton` | Choose one option from a group |
 | `Scale` | A slider for choosing a number |
@@ -241,7 +244,12 @@ and move, hide and update with it.
 score_label = Label(20, 20, "Score: 0", fg=(255, 220, 0), font_size=36)
 score_label.config(text=f"Score: {score}")     # change it later
 score_label.draw(screen)
+
+title = Label(20, 60, "Level 1", font_size=64, outline=3)    # easy to read on any background
+help_text = Label(400, 500, "Arrows to move\nSpace to jump", shadow=True,
+                  justify="center", center=True)              # "\n" = new line
 ```
+`outline_color` and `shadow_color` (or `colour`) change the colours.
 
 ### Button
 ```python
@@ -249,6 +257,12 @@ play = Button(100, 100, 200, 60, "Play", command=start_game,
               bg=(250, 200, 60), hover_bg=(255, 230, 120), border_radius=15)
 play.handle_event(event)        # in handle_inputs()
 play.draw(screen)
+
+plus = Button(100, 200, 50, 50, "+", command=add_one,
+              active_bg=(60, 100, 200),        # colour while held down
+              sound="click.wav",               # or a SoundEffect
+              repeatdelay=400, repeatinterval=80)   # hold it to keep adding
+plus.update(tick)               # in update(tick) - only needed for repeat (a Frame does it)
 ```
 
 ### TextBox
@@ -257,7 +271,12 @@ name_box = TextBox(50, 100, max_chars=15, label="Name:", on_enter=say_hello)
 name_box.handle_event(event)    # in handle_inputs()
 name_box.update(tick)           # cursor blink
 name = name_box.get()
+
+password = TextBox(50, 150, show="*", placeholder="Password")   # grey hint while empty
+age_box = TextBox(50, 200, max_chars=3, allowed="digits", on_change=check_age)
 ```
+`allowed` can be `"digits"`, `"letters"` or your own characters, e.g. `"0123456789."`.
+`on_change` runs (no arguments) every time the text changes.
 
 ### Frame and Popup
 ```python
@@ -268,9 +287,17 @@ menu.toggle_visibility()        # hides / shows everything inside
 game_over = Popup(400, 300, 320, 200, "Game Over", center=True,
                   title_font_size=36)          # title size (24 if left out)
 game_over.show()
+
+pause_menu.show(fade_ms=300)    # fade in
+pause_menu.hide(fade_ms=300)    # fade out (it stops taking clicks straight away)
+pause_menu.toggle_visibility(fade_ms=300)
+title.slide_to(300, 90, ms=900) # any widget placed with x, y glides there
 ```
 Call `handle_event`, `update` and `draw` on the Frame or Popup only - it passes
 them on to everything inside. Draw popups last so they are on top.
+Fades and slides need no `update(tick)` and keep going while timers are paused.
+Fades work on Frame, LabelFrame, ScrolledFrame, Notebook, Popup and MessageBox;
+other widgets show / hide straight away.
 
 ### Question boxes (MessageBox)
 ```python
@@ -291,6 +318,19 @@ Enter presses the first button, Escape closes it. While it is open it takes
 every click and key, so the game underneath doesn't react.
 Add `type_speed=30` to type the message out (then call `box.update(tick)`);
 the first click or Enter only shows the rest of the message.
+
+Boxes the player types into (like tkinter's `simpledialog`):
+```python
+def got_name(name):                   # the text, or None (Cancel / closed)
+    if name:
+        scores.add(name, score)
+
+name_box = askstring("New high score!", "Enter your name:", command=got_name)
+age_box = askinteger("Age", "How old are you?", command=got_age, minvalue=5, maxvalue=99)
+```
+Handle and draw them like any question box (`box.update(tick)` makes the
+cursor blink). `askinteger` only lets numbers be typed, and stays open with a
+message if the number is outside `minvalue` / `maxvalue`.
 
 ### Animator
 ```python
@@ -408,6 +448,7 @@ want them on GitHub. A missing or broken save file never crashes the game.
 ```python
 player.health = Health(100, invincible_ms=800, on_death=game_over, bar=health_bar)
 player.health.damage(10)
+enemy.health.draw_bar(screen, enemy, camera)   # a small bar floating above the enemy
 
 bullets = ProjectileGroup()
 gun = Shooter(bullets, cooldown=150, speed=700, damage=10, owner=player)
@@ -528,9 +569,13 @@ Radiobutton(50, 80, "Hard", variable=difficulty, value="Hard")
 Checkbutton(50, 50, "Music", variable=music_on)            # BooleanVar
 Spinbox(50, 100, from_=1, to=4, variable=players)
 Listbox(50, 150, 200, rows=5, items=["Level 1", "Level 2"]) # .get_selected()
+Listbox(50, 300, 200, items=skills, selectmode="multiple")  # .get_all_selected()
 Combobox(300, 50, 200, values=["Knight", "Wizard"], textvariable=hero)
+Combobox(300, 100, 200, values=countries, editable=True)    # type to search the list
 Message(50, 300, "Long text that wraps...", width=400)
 health = Progressbar(20, 20, 200, maximum=100, value=100)   # health.step(-10)
+health = Progressbar(20, 20, 200, value=100, low_color=(220, 50, 50),  # red when low
+                     animate=True)        # lost health shows as a shrinking "ghost"
 settings = Notebook(100, 50, 400, 300)
 sound_tab = settings.new_tab("Sound")                       # a Frame to add() to
 ```
@@ -556,11 +601,13 @@ talk.config(text="Next line...")     # new text types out by itself
 ### Style and themes
 ```python
 style = Style()
-style.theme_use("dark")                          # "light", "dark" or "retro"
+style.theme_use("dark")             # "light", "dark", "retro" or "high_contrast"
 style.configure("Button", border_radius=10)      # every Button
 style.configure("Danger.Button", bg=(200, 0, 0)) # a named style...
 Button(10, 10, 120, 40, "Quit", style="Danger.Button")
 ```
+`"high_contrast"` uses black, white and yellow, thick borders and bigger text,
+for players who find the other themes hard to read.
 Options you give a widget always beat the Style. Use your own pictures with
 `image=` (Button, Label, Checkbutton, Radiobutton), `handle_image=` (Scale)
 and `bar_image=` / `trough_image=` (Progressbar).
@@ -743,10 +790,23 @@ often trip students up. Everything here is deliberate.
 | Style changes | `ttk.Style` | `Style()` - also changes widgets that already exist | live theme switching |
 | Health as hearts | no widget for it; a `ttk.Progressbar` with pictures stretches them and cuts hearts at any percent | `HeartsBar` draws whole and half hearts and reads a `Health` | looks like real games, no maths needed |
 | Typewriter text (one letter at a time) | not built in - you write an `after()` loop that adds a letter and reschedules itself | `Message(..., type_speed=30, type_sound=...)`; a click or Space shows the rest | game dialogue in one option |
+| Entry `show="*"` | `show="*"` | the same, but it is kept in `box.show_char` (`box.show()` is the method that shows the box) | `show` can't be an option and a method |
+| Hint text in an empty Entry | not possible | `TextBox(..., placeholder="Your name")` | forms explain themselves |
+| Only allow some keys in an Entry | `validate=` + `validatecommand=` with `register()` and `%P` codes | `TextBox(..., allowed="digits")` (or `"letters"`, or your own characters) | one simple option |
+| Run code when an Entry changes | a `StringVar` and `trace_add` | `TextBox(..., on_change=function)` | no Variable needed |
+| `simpledialog.askstring()` / `askinteger()` | stop the program and **return** the answer | `askstring(..., command=f)` / `askinteger(...)` give the answer to `f(answer)` | a game can't stop and wait |
+| Several lines in a Label | `"\n"`, lines centred by default (`justify="center"`) | `"\n"` too, but lines line up on the left by default | a score or HUD Label doesn't jump around |
+| Outlined / shadowed text | not possible | `Label(..., outline=2)` / `Label(..., shadow=True)` | text stays readable over a game |
+| Button colour while held down | `activebackground`, but on Windows it is the colour when the mouse is **over** it | `active_bg` is only the held-down colour; `hover_bg` is for the mouse over it | two clear options |
+| Click sound on a Button | not possible | `Button(..., sound="click.wav")` | no extra code in the command |
+| Progressbar warning colour / damage animation | not possible | `low_color=`, `low_at=`, `animate=True` | game-style health bars |
+| Combobox typing | you can type by default (`state="readonly"` stops it); the list is not filtered | choose-only by default; `editable=True` lets you type **and** the list shows only the matches | v1.0 code keeps working; searching long lists is easy |
+| Listbox `selectmode` | `"browse"`, `"single"`, `"multiple"`, `"extended"` | `"single"` (default, `"browse"` also works) and `"multiple"`; `"extended"` (Shift / Ctrl-click) gives an error that suggests `"multiple"` | one click = tick / untick is easier to understand |
+| Fading / sliding widgets | not possible | `show(fade_ms=300)`, `hide(fade_ms=300)`, `slide_to(x, y, ms)` | menus that animate in and out |
 
-**Things tkinter has that this library doesn't (yet):** typing into a
-Combobox (it is choose-only), multi-line text editing (`Text`), and
-`Canvas` drawing items.
+**Things tkinter has that this library doesn't (yet):** multi-line text
+editing (`Text`), `Canvas` drawing items, and Shift / Ctrl-click choosing
+in a Listbox (`selectmode="extended"`).
 
 ## Changes since v1.0
 
@@ -781,6 +841,29 @@ Everything here is **added** - code written for v1.0 still works the same.
   up and fade. It is a text particle, so `Particles.update(tick)` and
   `Particles.draw(screen)` move, draw and remove it. New example
   `floating_text_example.py`, new test `test_floating_text.py`.
+- `TextBox(show="*", placeholder=..., allowed=..., on_change=...)` - passwords,
+  grey hint text, numbers / letters only, and a function that runs when the
+  text changes. `config(show=...)` works; the value is kept in `show_char`.
+- New `askstring()` and `askinteger()` (like tkinter's `simpledialog`), and
+  `MessageBox(entry=a_textbox)` to put a typing box in any question box.
+- `Label(outline=..., shadow=True, justify=...)` and their colours.
+  **One change you might notice:** `"\n"` in a Label now starts a new line
+  (before, it showed as a box character).
+- `Button(active_bg=..., active_image=..., sound=..., repeatdelay=...,
+  repeatinterval=...)`, `button.pressed`, and `button.update(tick)` for repeating.
+  Buttons now also notice the mouse button being let go (the event is not used up).
+- `Progressbar(low_color=..., low_at=..., animate=True, ghost_color=...)`.
+- `health.draw_bar(screen, sprite, camera)` - a small bar floating above a sprite.
+- `Combobox(editable=True)` - type to search the list.
+- `Listbox(selectmode="multiple")`, `get_all_selected()`, `selection_includes()`.
+- `show(fade_ms=...)`, `hide(fade_ms=...)`, `toggle_visibility(fade_ms=...)`,
+  `widget.closing`, `slide_to(x, y, ms)` and `widget.sliding` on every widget.
+- New theme `"high_contrast"`.
+- New examples `form_example.py` and `hud_example.py`, new test
+  `test_widget_extras.py`.
+- Copyright notices now name the State of Victoria (Department of Education),
+  as the DET Intellectual Property and Copyright Policy requires, and the
+  Student Guide and Cheat Sheet are marked CC BY 4.0. No code changed.
 
 ## Example art
 
@@ -800,3 +883,25 @@ and are free to use. It prints
 Open `PygameTkinterGUITools.slnx` in Visual Studio (with the *Python
 development* workload installed), or clone this repository using
 **Git → Clone Repository…**.
+
+## Licence
+
+PygameTkinterGUITools was written by Adam Fox at Greater Shepparton Secondary
+College for teaching Year 10 students.
+
+Under the Victorian Department of Education's
+[Intellectual Property and Copyright Policy](https://www2.education.vic.gov.au/pal/intellectual-property-and-copyright/policy),
+material that school staff create as part of their work is owned by the
+Department on behalf of the State of Victoria, and the policy asks schools to
+share it for free.
+
+- **Code** (`PygameTkinterGUITools.py`, `examples/`, `tests/`, `docs/make_guide_pictures.py`):
+  © 2026 State of Victoria (Department of Education), released under the
+  [MIT Licence](LICENSE). Creative Commons licences are not meant for software,
+  so the code uses MIT, which gives the same freedom: use it, change it and
+  share it, as long as the copyright notice is kept.
+- **Student Guide and Cheat Sheet** (`docs/*.docx`) and the pictures in
+  `docs/pictures/`: © 2026 State of Victoria (Department of Education),
+  licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+  Please credit "Adam Fox, Greater Shepparton Secondary College and the
+  Victorian Department of Education".

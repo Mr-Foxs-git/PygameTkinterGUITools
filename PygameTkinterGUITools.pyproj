@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>f455a13a-f7b3-42d7-99ec-a801e987b2df</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>examples\floating_text_example.py</StartupFile>
+    <StartupFile>examples\hud_example.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -74,6 +74,9 @@
     <Compile Include="examples\typewriter_example.py" />
     <Compile Include="tests\test_typewriter.py" />
     <Compile Include="tests\test_big_maps.py" />
+    <Compile Include="examples\form_example.py" />
+    <Compile Include="examples\hud_example.py" />
+    <Compile Include="tests\test_widget_extras.py" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="docs\" />

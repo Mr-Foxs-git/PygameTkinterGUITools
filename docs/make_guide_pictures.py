@@ -464,9 +464,10 @@ def _(s):
 
 def theme_panel(s, theme):
     g.Style().theme_use(theme)
-    s.fill({"light": (30, 30, 40), "dark": (20, 20, 25), "retro": (0, 0, 0)}[theme])
+    s.fill({"light": (30, 30, 40), "dark": (20, 20, 25), "retro": (0, 0, 0),
+            "high_contrast": (0, 0, 0)}[theme])
     f = g.Frame(15, 15, 270, 260)
-    f.add(g.Label(0, 0, theme.title() + " theme", font_size=30),
+    f.add(g.Label(0, 0, theme.replace("_", " ").title() + " theme", font_size=30),
           g.Button(0, 40, 200, 45, "Play"),
           g.Checkbutton(0, 100, "Music", variable=g.BooleanVar(True)),
           g.Scale(0, 140, length=230, variable=g.IntVar(60)),
@@ -474,7 +475,7 @@ def theme_panel(s, theme):
     f.draw(s)
 
 
-for _theme in ("light", "dark", "retro"):
+for _theme in ("light", "dark", "retro", "high_contrast"):
     shot("theme_" + _theme, 300, 290)(lambda s, t=_theme: theme_panel(s, t))
 
 
@@ -716,6 +717,180 @@ def _(s):
     text(s, "The letters appear one at a time...", 20, 20, 20)
     text(s, "Click or press SPACE to see the rest straight away", 20, 135, 18,
          colour=(255, 200, 0))
+
+
+@shot("hearts", 560, 200)
+def _(s):
+    health = g.Health(10)
+    health.damage(3)                                    # 7 HP left = 3.5 hearts
+    text(s, "Drawn hearts (no pictures needed)", 20, 12, 16)
+    g.HeartsBar(20, 40, health=health, hearts=5, heart_size=40, gap=6).draw(s)
+    text(s, "Your own pictures", 290, 12, 16)
+    g.HeartsBar(290, 40, health=health, hearts=5, heart_size=(45, 40), gap=6,
+                full_image=asset("heart_full.png"), half_image=asset("heart_half.png"),
+                empty_image=asset("heart_empty.png")).draw(s)
+    arrow(s, (175, 120), (160, 88))
+    text(s, "half a heart = 1 HP", 150, 122, 18, colour=(255, 200, 0))
+    text(s, "One heart per HP, per_row=5", 20, 150, 18)
+    g.HeartsBar(290, 140, health=health, heart_size=20, per_row=5).draw(s)
+
+@shot("floating_text", 560, 240)
+def _(s):
+    text(s, "Damage numbers", 20, 12, 18)
+    dummy = g.SpriteObject(50, 90, 90, 100, bg=(150, 110, 70))
+    dummy.draw(s)
+    g.FloatingText(80, 72, 12, color="red", font_size=32).draw(s)
+    g.FloatingText(125, 50, "18!", color="yellow", font_size=44).draw(s)
+    coin = pg.transform.scale(pg.image.load(asset("coin.png")).convert_alpha(), (40, 40))
+    s.blit(coin, (330, 150))
+    for age in (0, 650, 850):                           # the same "+10" at 3 moments
+        pop = g.FloatingText(350, 135, "+10", color="gold", font_size=32, speed=110)
+        pop.update(age)
+        pop.draw(s)
+    arrow(s, (420, 140), (420, 40))
+    text(s, "floats up...", 430, 100, 18, colour=(255, 200, 0))
+    text(s, "...then fades out", 430, 32, 18, colour=(255, 200, 0))
+    text(s, "A text particle: it needs Particles.update(tick) and Particles.draw(screen)",
+         20, 210, 16)
+
+# ======================================================================
+# Newer widget options (v1.1)
+# ======================================================================
+# Fades, slides and animated bars use the clock. This pretend clock lets a
+# picture freeze them half way.
+real_get_ticks = pg.time.get_ticks
+fake_clock = [0]
+
+
+def use_fake_clock(on=True):
+    pg.time.get_ticks = (lambda: fake_clock[0]) if on else real_get_ticks
+
+
+def stripes(s, colour=(230, 230, 180), bg=(40, 90, 60)):
+    """A busy background, so outlines and shadows have something to beat."""
+    s.fill(bg)
+    for x in range(0, s.get_width(), 60):
+        pg.draw.rect(s, colour, (x, 0, 30, s.get_height()))
+
+
+@shot("label_outline", 560, 220)
+def _(s):
+    stripes(s)
+    g.Label(20, 15, "Plain: hard to read", font_size=30).draw(s)
+    g.Label(20, 60, "outline=2", font_size=30, outline=2).draw(s)
+    g.Label(300, 60, "shadow=True", font_size=30, fg=(255, 220, 0), shadow=True,
+            shadow_offset=(3, 3)).draw(s)
+    g.Label(280, 165, "Arrows move   Space jumps\nEscape = pause", font_size=24,
+            outline=2, justify="center", center=True).draw(s)
+    g.Label(20, 110, '"\\n" starts a new line, justify="center":', font_size=20,
+            outline=2).draw(s)
+
+
+@shot("textbox_extras", 560, 200)
+def _(s):
+    g.TextBox(20, 20, max_chars=12, label="Name:", placeholder="Your hero").draw(s)
+    g.TextBox(20, 75, max_chars=12, label="Password:", show="*", text="dragon").draw(s)
+    g.TextBox(20, 130, max_chars=3, label="Lucky number:", allowed="digits", text="42").draw(s)
+    text(s, 'placeholder="Your hero"', 330, 28, 18, colour=(255, 200, 0))
+    text(s, 'show="*"', 330, 83, 18, colour=(255, 200, 0))
+    text(s, 'allowed="digits"', 330, 138, 18, colour=(255, 200, 0))
+
+
+@shot("list_extras", 560, 250)
+def _(s):
+    text(s, 'selectmode="multiple"', 20, 10, 18, colour=(255, 200, 0))
+    skills = g.Listbox(20, 40, 200, rows=6, selectmode="multiple",
+                       items=["Climbing", "Cooking", "Fishing", "Magic", "Sneaking", "Swimming"])
+    for i in (1, 3, 4):
+        skills.selection_set(i)
+    skills.draw(s)
+    text(s, "editable=True (typed: wi)", 270, 10, 18, colour=(255, 200, 0))
+    hero = g.Combobox(270, 40, 220, editable=True,
+                      values=["Archer", "Knight", "Rogue", "Wizard", "Witch"])
+    hero._open()
+    for letter in "wi":
+        hero._type_key(pg.event.Event(pg.KEYDOWN, key=ord(letter), unicode=letter, mod=0))
+    hero.draw(s)
+    hero.draw_overlay(s)
+
+
+@shot("askstring", 640, 360)
+def _(s):
+    for i in range(12):
+        pg.draw.circle(s, (60 + i * 10, 120, 200), (random.randint(0, 640), random.randint(0, 360)), 30)
+    box = g.askstring("High score!", "Type your name:", initialvalue="Sam", x=320, y=180)
+    box.draw(s)
+
+
+@shot("progressbar_extras", 560, 190)
+def _(s):
+    use_fake_clock()
+    try:
+        g.Label(20, 10, 'low_color: red when nearly empty').draw(s)
+        g.Progressbar(20, 40, 300, thickness=26, value=20, show_text=True,
+                      low_color=(230, 50, 50), low_at=0.25).draw(s)
+        g.Label(20, 95, 'animate=True: the lost part fades away').draw(s)
+        bar = g.Progressbar(20, 125, 300, thickness=26, value=80, animate=True)
+        fake_clock[0] = 1000
+        bar.draw(s)
+        bar.config(value=45)                         # ouch!
+        fake_clock[0] = 1100
+        bar.draw(s)
+        arrow(s, (420, 165), (275, 140))
+        text(s, '"ghost" of the', 425, 140, 18, colour=(255, 200, 0))
+        text(s, "health you lost", 425, 160, 18, colour=(255, 200, 0))
+    finally:
+        use_fake_clock(False)
+
+
+@shot("fade_slide", 600, 300)
+def _(s):
+    use_fake_clock()
+    try:
+        stripes(s, colour=(60, 120, 80))
+        fake_clock[0] = 0
+        title = g.Label(-300, 20, "Level 1", font_size=56, outline=3, fg=(255, 220, 0))
+        title.slide_to(330, 20, ms=900)
+        menu = g.Frame(150, 100, 300, 170, bg=(50, 50, 80), border_color=(200, 200, 255),
+                       visible=False)
+        menu.add(g.Label(150, 20, "Paused", font_size=40, center=True),
+                 g.Button(50, 60, 200, 50, "Resume"))
+        fake_clock[0] = 300
+        menu.show(fade_ms=400)
+        fake_clock[0] = 500            # the fade is half way, the slide is part way
+        title.draw(s)
+        arrow(s, (10, 50), (title.x - 10, 50))
+        menu.draw(s)
+        text(s, "slide_to(330, 20, ms=900)", 20, 80, 18, colour=(255, 255, 255), bold=True)
+        text(s, "show(fade_ms=400): half way", 160, 275, 18, colour=(255, 255, 255), bold=True)
+    finally:
+        use_fake_clock(False)
+
+
+@shot("enemy_bars", 560, 230)
+def _(s):
+    use_fake_clock()
+    try:
+        s.fill((60, 100, 60))
+        fake_clock[0] = 1000
+        enemies = []
+        for i, hp in enumerate((30, 18, 6)):
+            enemy = g.SpriteObject(60 + i * 170, 110, 60, 60, bg=(220, 70, 70))
+            enemy.health = g.Health(30)
+            enemy.health.draw_bar(s.copy(), enemy, low_color=(230, 50, 50), animate=True)
+            enemy.health.damage(30 - hp)
+            enemies.append(enemy)
+        fake_clock[0] = 1100
+        for enemy in enemies:
+            enemy.draw(s)
+            enemy.health.draw_bar(s, enemy, low_color=(230, 50, 50), animate=True)
+        text(s, "health.draw_bar(screen, enemy, camera)", 20, 15, 20, bold=True)
+        text(s, "full", 75, 185, 18)
+        text(s, "hurt (the ghost fades)", 190, 185, 18)
+        text(s, "nearly dead: red", 400, 185, 18)
+    finally:
+        use_fake_clock(False)
+
 
 print()
 print(f"Made {len(made)} pictures in {OUT}")
