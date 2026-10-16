@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>f455a13a-f7b3-42d7-99ec-a801e987b2df</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>tests\test_table_popup_messagebox.py</StartupFile>
+    <StartupFile>tests\test_big_maps.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -12,6 +12,7 @@
     <Name>PygameTkinterGUITools</Name>
     <RootNamespace>PygameTkinterGUITools</RootNamespace>
     <SuppressConfigureTestFrameworkPrompt>true</SuppressConfigureTestFrameworkPrompt>
+    <SuppressEnvironmentCreationPrompt>True</SuppressEnvironmentCreationPrompt>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>

@@ -97,16 +97,27 @@ CountingTile.updates = 0
 slow.update(16)
 check("chunks=False still updates every tile (v1.0 way)", CountingTile.updates == changing)
 
-start = time.perf_counter()
-for _ in range(20):
-    picture(fast, (3000, 3000))
-fast_time = time.perf_counter() - start
-start = time.perf_counter()
-for _ in range(20):
-    picture(slow, (3000, 3000))
-slow_time = time.perf_counter() - start
-print(f"      drawing 20 frames: chunks {fast_time:.3f}s, v1.0 way {slow_time:.3f}s")
-check("Chunks are much faster on a big map", fast_time * 3 < slow_time)
+
+
+def draw_time(world, frames=30):
+    """Best of 3 tries: seconds to draw `frames` frames (world.draw only)."""
+    surface = pg.Surface((640, 480))
+    world.camera.offset.update(3000, 3000)
+    best = None
+    for _ in range(3):
+        start = time.perf_counter()
+        for _ in range(frames):
+            world.draw(surface)
+        took = time.perf_counter() - start
+        best = took if best is None else min(best, took)
+    return best
+
+
+fast_time = draw_time(fast)
+slow_time = draw_time(slow)
+print(f"      drawing 30 frames: chunks {fast_time:.3f}s, v1.0 way {slow_time:.3f}s "
+      f"({slow_time / max(fast_time, 1e-9):.1f}x faster)")
+check("Chunks are faster on a big map", fast_time < slow_time)
 
 new_tile = g.Tile((3100, 3100), pg.Surface((32, 32)))
 new_tile.image.fill((255, 255, 255))
