@@ -1,0 +1,15 @@
+{
+  "start": [
+    {"speaker": "Shopkeeper", "text": "Welcome to my shop, friend!"},
+    "Potions are 5 coins each. They taste like old socks, but they work.",
+    {"text": "Would you like one?",
+     "choices": [["Buy a potion (5 coins)", "buy", {"if": "can_afford"}],
+                 ["Just looking", "bye"]]}
+  ],
+  "buy": [
+    {"text": "Here you go! Come again.", "do": "buy_potion"}
+  ],
+  "bye": [
+    "Suit yourself. I'll be here."
+  ]
+}

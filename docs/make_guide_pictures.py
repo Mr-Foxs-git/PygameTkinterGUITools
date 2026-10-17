@@ -1213,6 +1213,29 @@ def _(s):
     note(s, "F1 (Debug) shows all of this", 400, 398, 16)
 
 
+
+# ======================================================================
+# Dialogue
+# ======================================================================
+@shot("dialogue", 680, 340)
+def _(s):
+    pg.draw.rect(s, (70, 140, 80), (0, 0, 680, 340))
+    script = {"start": [{"speaker": "Wizard", "text": "Ah, a traveller! Will you "
+                         "take this sword?",
+                         "choices": [["Yes please", "take"], ["No thanks", "end"]]}],
+              "take": ["Use it wisely!"]}
+    talk = g.Dialogue(20, 180, 640, 140, script=script,
+                      speakers={"Wizard": {"portrait": asset("portrait_wizard.png")}})
+    talk.start()
+    talk.next()                          # finish typing, so the choices show
+    talk.draw(s)
+    note(s, "name (speaker)", 200, 150, 16, colour=(255, 220, 0))
+    arrow(s, (240, 172), (222, 194))
+    note(s, "portrait (speakers=)", 20, 150, 16, colour=(255, 220, 0))
+    note(s, "choices jump to other parts", 240, 40, 16, colour=(255, 220, 0))
+    arrow(s, (470, 52), (536, 84))
+    note(s, "click / SPACE: finish the line, then the next line", 20, 14, 16)
+
 print()
 print(f"Made {len(made)} pictures in {OUT}")
 if failed:

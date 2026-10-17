@@ -108,6 +108,7 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Lists and drop-down menus | [`listbox_combobox_example.py`](examples/listbox_combobox_example.py) |
 | Dialogue / instructions that wrap | [`message_example.py`](examples/message_example.py) |
 | Dialogue that types out letter by letter, with a typing sound | [`typewriter_example.py`](examples/typewriter_example.py) |
+| Talk to people: names, portraits, choices that change what happens, a script in a JSON file | [`dialogue_example.py`](examples/dialogue_example.py) |
 | Health, energy and loading bars | [`progressbar_example.py`](examples/progressbar_example.py) |
 | Health as a row of hearts (Zelda style) | [`hearts_example.py`](examples/hearts_example.py) |
 | Game-screen text and bars: outlined text, bars that go red, health bars over enemies, a fading pause menu, high contrast | [`hud_example.py`](examples/hud_example.py) |
@@ -182,6 +183,7 @@ and move, hide and update with it.
 | `Popup` | A pop-up window with a title and close button |
 | `MessageBox`, `askyesno()`, `askyesnocancel()`, `askokcancel()`, `showinfo()` | Ready-made question boxes (like tkinter's `messagebox`) |
 | `askstring()`, `askinteger()` | Question boxes the player types into (like tkinter's `simpledialog`) |
+| `Dialogue` | Conversations: speaker names, portraits, typing text and choices that jump to other parts |
 | `Checkbutton` | A tick box (on / off) |
 | `Radiobutton` | Choose one option from a group |
 | `Scale` | A slider for choosing a number |
@@ -720,6 +722,37 @@ talk.config(text="Next line...")     # new text types out by itself
 `talk.restart()` types it again. A left click, Space or Enter shows the rest
 (change the keys with `skip_keys=`). No sound is played for spaces.
 
+### Conversations (Dialogue)
+```python
+wizard_talk = {                       # a dict of parts; each part is a list of lines
+    "start": [
+        {"speaker": "Wizard", "text": "Hello, traveller!"},
+        "Will you take this sword?",                   # a string = same speaker
+        {"text": "Well?", "choices": [["Yes please", "take"], ["No thanks", "end"]]},
+    ],
+    "take": [{"text": "Use it wisely!", "set": {"has_sword": True}, "do": "give_sword"}],
+}
+talk = Dialogue(20, 400, 760, 180, script=wizard_talk,        # or script="talk.json"
+                speakers={"Wizard": {"portrait": "wizard.png"}},
+                actions={"give_sword": give_sword}, on_end=finished_talking)
+
+talk.start()                         # or talk.start("again")
+if talk.handle_event(event):         # FIRST in handle_inputs() - True = it used the press
+    continue
+talk.update(tick)                    # in update(tick) - types the text out
+talk.draw(screen)                    # LAST in draw_game()
+if not talk.talking: ...             # e.g. only move the player when nobody is talking
+```
+Line keys: `text`, `speaker` (left out = same as before, `None` = narrator),
+`portrait`, `choices` (`[text, part]`, add `{"if": "flag"}` to hide one until
+that flag is True), `goto`, `set`, `do`. Jump to `"end"` to finish; a part that
+runs out of lines also finishes. Click / Space / Enter shows the rest of the
+line, then the next line; choose with the mouse or Up / Down + Enter.
+`talk.say("Sign", "Keep out!")` shows one line with no script.
+Save what happened with `save_data("save.json", flags=talk.flags)` and give it
+back with `Dialogue(..., flags=load_data("save.json", default={"flags": {}})["flags"])`.
+Mistakes in the script are printed as warnings; F1 shows the box's areas.
+
 ### Style and themes
 ```python
 style = Style()
@@ -929,6 +962,7 @@ often trip students up. Everything here is deliberate.
 | Style changes | `ttk.Style` | `Style()` - also changes widgets that already exist | live theme switching |
 | Health as hearts | no widget for it; a `ttk.Progressbar` with pictures stretches them and cuts hearts at any percent | `HeartsBar` draws whole and half hearts and reads a `Health` | looks like real games, no maths needed |
 | Typewriter text (one letter at a time) | not built in - you write an `after()` loop that adds a letter and reschedules itself | `Message(..., type_speed=30, type_sound=...)`; a click or Space shows the rest | game dialogue in one option |
+| Conversations with choices | no widget for it; `messagebox` / `simpledialog` stop the program until answered, and tkinter's "Dialog" means a question window | `Dialogue(script=...)` never stops the game; choices jump to parts of a script (a dict or JSON file); `on_end=` like a `command` | games need talking without freezing; writing the words is separate from the code |
 | Entry `show="*"` | `show="*"` | the same, but it is kept in `box.show_char` (`box.show()` is the method that shows the box) | `show` can't be an option and a method |
 | Hint text in an empty Entry | not possible | `TextBox(..., placeholder="Your name")` | forms explain themselves |
 | Only allow some keys in an Entry | `validate=` + `validatecommand=` with `register()` and `%P` codes | `TextBox(..., allowed="digits")` (or `"letters"`, or your own characters) | one simple option |
@@ -1055,6 +1089,12 @@ Everything here is **added** - code written for v1.0 still works the same.
   objects, with `max_alive`, `total`, `avoid=` and `world=`) and `Waves` (runs a
   Spawner in waves with breaks). New example `spawner_example.py`, new test
   `test_spawner.py`. `after_repeat()` is unchanged, so the old way still works.
+- New `Dialogue` for conversations: speaker names, portraits, text that types
+  out (it uses `Message`'s `type_speed`), choices that jump to other parts,
+  `set` flags, `do` actions, `say()`, and scripts in a dict or a JSON file.
+  New pictures `portrait_wizard.png` and `portrait_shopkeeper.png`, new script
+  `shop_talk.json`, new example `dialogue_example.py`, new test
+  `test_dialogue.py`. No existing class changed.
 
 ## Example art
 

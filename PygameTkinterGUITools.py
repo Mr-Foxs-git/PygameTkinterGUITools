@@ -10,6 +10,7 @@ GUI widgets work like tkinter / ttk:
     Listbox, Message, Progressbar, Combobox, Separator,
     Frame, LabelFrame, Notebook, Popup
     MessageBox, askyesno, askstring, askinteger ... (question boxes)
+    Dialogue                                   (conversations with choices)
     IntVar, StringVar, BooleanVar, DoubleVar   (shared values)
     Style                                      (colours and fonts for everything)
 Game helpers: Animator, SpriteObject, Camera, ZoomCamera, TiledMap, World,
@@ -234,6 +235,9 @@ THEMES = {
                   "border_width": 2, "title_font_size": 24, "title_font_name": None},
         "HeartsBar": {"heart_color": (220, 40, 60), "empty_color": (70, 70, 80),
                       "border_color": BLACK, "border_width": 2},
+        "Dialogue": {"fg": WHITE, "bg": (30, 30, 45), "name_fg": (255, 210, 80),
+                     "name_bg": None, "border_color": WHITE, "border_width": 3,
+                     "border_radius": 10, "font_size": 28},
     },
     "dark": {
         ".": {"fg": (230, 230, 240), "bg": (40, 40, 50), "border_color": (90, 90, 110),
@@ -254,6 +258,8 @@ THEMES = {
         "Frame": {"bg": (40, 40, 50)},
         "Notebook": {"bg": (40, 40, 50), "tab_bg": (60, 60, 80)},
         "Popup": {"fg": (230, 230, 240), "bg": (50, 50, 64), "border_color": (110, 140, 255)},
+        "Dialogue": {"fg": (230, 230, 240), "bg": (25, 25, 32), "name_fg": (150, 175, 255),
+                     "border_color": (110, 140, 255)},
     },
     "retro": {
         ".": {"fg": (255, 255, 255), "bg": (0, 0, 0), "border_color": (255, 255, 255),
@@ -278,6 +284,8 @@ THEMES = {
         "Popup": {"fg": (255, 255, 255), "bg": (0, 0, 0), "border_color": (255, 60, 160)},
         "HeartsBar": {"heart_color": (255, 60, 160), "empty_color": (40, 40, 40),
                       "border_color": (255, 255, 255)},
+        "Dialogue": {"fg": (255, 255, 255), "bg": (0, 0, 0), "name_fg": (0, 255, 255),
+                     "border_color": (255, 255, 255), "border_radius": 0},
     },
     # Easy to see: black and white with bright yellow, thick borders and a
     # slightly bigger font. Good for players with low vision and projectors.
@@ -314,6 +322,9 @@ THEMES = {
                   "border_width": 4, "title_font_size": 28},
         "HeartsBar": {"heart_color": (255, 230, 0), "empty_color": (60, 60, 60),
                       "border_color": WHITE},
+        "Dialogue": {"fg": WHITE, "bg": BLACK, "name_fg": (255, 230, 0),
+                     "border_color": (255, 230, 0), "border_width": 4,
+                     "border_radius": 0, "font_size": 30},
     },
 }
 
@@ -5428,6 +5439,500 @@ class FocusGroup:
 
         if joy["press"] is not None and self.joystick.was_pressed(joy["press"]):
             self._do("activate")
+
+
+# ================================
+# Dialogue Class (conversations with names, portraits and choices)
+# ================================
+
+class Dialogue(Widget):
+    """
+    A conversation box, like the ones in Zelda, Pokemon or Undertale:
+    the speaker's name, a portrait, text that types out, and choices that
+    jump to other parts of the conversation.
+
+    The words go in a "script": a dict of named parts. Each part is a list
+    of lines. A line is just a string, or a dict with some of these keys:
+        "text"     - the words (needed). "\\n" starts a new line.
+        "speaker"  - name shown at the top. Left out = same as the line
+                     before. None = no name (good for a narrator).
+        "portrait" - a picture for this line only (e.g. a surprised face)
+        "choices"  - list of [button text, part to jump to]. Add a third
+                     item {"if": "flag_name"} to only show the choice when
+                     that flag is True. Jumping to "end" ends the talk.
+        "goto"     - after this line, jump to another part
+        "set"      - flags to set, e.g. {"has_sword": True}
+        "do"       - name of a function in actions= to run (no arguments)
+    When a part runs out of lines, the conversation ends.
+
+        wizard_talk = {
+            "start": [
+                {"speaker": "Wizard", "text": "Hello, traveller!"},
+                "Will you take this sword?",          # same speaker
+                {"text": "Well?", "choices": [["Yes please", "take"],
+                                              ["No thanks", "end"]]},
+            ],
+            "take": [
+                {"text": "Use it wisely!", "set": {"has_sword": True}},
+            ],
+        }
+        talk = Dialogue(20, 400, 760, 180, script=wizard_talk,
+                        speakers={"Wizard": {"portrait": "wizard.png"}})
+
+    In your game loop:
+        talk.start()                  # open it at the "start" part
+        talk.start("again")           # ...or at another part
+        if talk.handle_event(event):  # FIRST in handle_inputs()
+            continue                  # True = it used the click / key
+        talk.update(tick)             # in update(tick) - types the text out
+        talk.draw(screen)             # LAST in draw_game(), so it is on top
+        if not talk.talking: ...      # e.g. only move the player when not talking
+
+    Controls: click (anywhere), Space or Enter shows the rest of the line,
+    then goes to the next line. Choices: click one, or use Up / Down and
+    Enter / Space. While talking it takes every click, so the game
+    underneath doesn't also shoot or jump. Other keys (e.g. Escape) are
+    left for your game. Choices pop up just above the box.
+
+    Parameters:
+        x, y, width, height - position and size of the box
+        script     - a dict of parts, or the name of a .json file laid out
+                     the same way (choices are lists in JSON)
+        speakers   - settings for each speaker, so you don't repeat them:
+                     {"Wizard": {"portrait": "wizard.png",
+                                 "name_fg": (180, 120, 255), "side": "right"}}
+                     side = which side the portrait goes ("left" or "right")
+        actions    - functions for "do", e.g. {"give_sword": give_sword}
+        flags      - a dict of starting flags (e.g. loaded from a save file)
+        type_speed - letters per second (0 = show each line at once)
+        type_sound - a SoundEffect played as the letters appear
+        on_end     - function (no arguments) run when the talk ends
+        keys       - keys for choosing: "arrows", "wasd", "tab" (like
+                     FocusGroup), or None for the mouse only
+        portrait_size - size of the (square) portrait in pixels
+                     (None = fills the height of the box)
+        fg, bg     - text and box colours
+        name_fg    - colour of the speaker's name; name_bg - a colour
+                     behind the name (None = none)
+        border_color, border_width, font_name, font_size
+        center     - if True, (x, y) is the centre of the box
+
+    Also:
+        talk.say("Sign", "Danger! Keep out.")   one line, no script needed
+        talk.next()          what a click / Space does
+        talk.choose(0)       pick the first choice (same as clicking it)
+        talk.stop()          end now (runs on_end)
+        talk.talking         True while the box is open
+        talk.part, talk.line where it is up to
+        talk.flags           the flags dict - save it with
+                             save_data("save.json", flags=talk.flags)
+
+    Mistakes in the script (a jump to a part that doesn't exist, a spelling
+    mistake in a key...) are printed as warnings when it is loaded, and
+    the game keeps running. Debug.on (F1) outlines the parts of the box
+    and shows which part and line it is up to.
+    """
+
+    LINE_KEYS = ("text", "speaker", "portrait", "choices", "goto", "set", "do")
+    NEXT_KEYS = (pg.K_SPACE, pg.K_RETURN, pg.K_KP_ENTER)
+    PAD = 12                      # space inside the box
+    CHOICE_HEIGHT = 36
+
+    def __init__(self, x, y=0, width=600, height=160, script=None, speakers=None,
+                 actions=None, flags=None, type_speed=40, type_sound=None, on_end=None,
+                 keys="arrows", portrait_size=None, fg=None, bg=None, name_fg=None,
+                 name_bg=None, border_color=None, border_colour=None, border_width=None,
+                 font_name=None, font_size=None, center=False, style=None):
+        # It starts hidden: start() opens it
+        super().__init__(x, y, width, height, center, False, style)
+        self.speakers = speakers or {}
+        self.actions = actions or {}
+        # Keep the SAME dict the student gave, so their copy sees the changes
+        self.flags = flags if flags is not None else {}
+        self.type_speed = type_speed
+        self.type_sound = type_sound
+        self.on_end = on_end
+        self.keys = keys
+        self.portrait_size = portrait_size
+        self.fg = fg
+        self.bg = bg
+        self.name_fg = name_fg
+        self.name_bg = name_bg
+        self.border_color = _pick(border_color, border_colour)
+        self.border_width = border_width
+        self.font_name = font_name
+        self.font_size = font_size
+
+        self.part = None              # the part being shown, e.g. "start"
+        self.line = 0                 # which line of that part (0 = first)
+        self._current = {}            # the line being shown, as a dict
+        self._speaker = None          # the name of whoever is talking
+        self._quick = {}              # parts made by say() or for error messages
+        self._load_error = None
+        self._buttons = []            # one Button per choice
+        self._focus = None            # FocusGroup for choosing with keys
+        self._blink = 0               # ms, for the "press to continue" arrow
+        # The words are shown by a Message, which does the typing out
+        self.text = Message(0, 0, "", width=100, padding=0,
+                            type_speed=type_speed, type_sound=type_sound)
+        self.load(script)
+
+    # ---------- the script ----------
+
+    def load(self, script):
+        """Use a new script: a dict of parts, or the name of a .json file."""
+        self.script = {}
+        self._load_error = None
+        if script is None:
+            return
+        if isinstance(script, str):
+            script = self._read_json(script)
+        if not isinstance(script, dict):
+            self._load_error = "The script should be a dict of parts"
+            _warn_once("Dialogue: the script should be a dict like "
+                       "{\"start\": [\"Hello!\", \"Bye!\"]}")
+            return
+        self.script = script
+        self._check_script()
+
+    def _read_json(self, filename):
+        """Load a script from a JSON file. A missing or broken file never crashes."""
+        import json
+        import os
+        # Look where the student said first, then next to the game
+        path = filename if os.path.exists(filename) else _save_path(filename)
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError) as error:
+            self._load_error = f"Couldn't load {os.path.basename(filename)}"
+            _warn_once(f"Dialogue: couldn't load {filename} ({error})")
+            return {}
+
+    def _lines_of(self, part):
+        """The list of lines in a part. A single line on its own also works."""
+        lines = self._quick.get(part, self.script.get(part, []))
+        if isinstance(lines, (str, dict)):
+            return [lines]
+        return list(lines)
+
+    @staticmethod
+    def _line_dict(line):
+        """Turn a line into a dict: "Hello" -> {"text": "Hello"}."""
+        if isinstance(line, dict):
+            return line
+        return {"text": str(line)}
+
+    def _check_script(self):
+        """Print a warning for each mistake in the script (once each)."""
+        import os
+        parts = ", ".join(str(p) for p in self.script)
+
+        def check_target(target, where):
+            if target != "end" and target not in self.script:
+                _warn_once(f"Dialogue: {where} jumps to '{target}' but there is no "
+                           f"part called that. Parts are: {parts} (or \"end\")")
+
+        def check_picture(picture, where):
+            if isinstance(picture, str) and not os.path.exists(picture):
+                _warn_once(f"Dialogue: can't find the portrait '{picture}' ({where})")
+
+        for name, info in self.speakers.items():
+            check_picture(info.get("portrait"), f"speaker '{name}'")
+        for part in self.script:
+            for number, line in enumerate(self._lines_of(part)):
+                line = self._line_dict(line)
+                where = f"part '{part}', line {number + 1}"
+                for key in line:
+                    if key not in self.LINE_KEYS:
+                        _warn_once(f"Dialogue: {where} has the key '{key}'. Keys that "
+                                   f"work: {', '.join(self.LINE_KEYS)}")
+                if "text" not in line:
+                    _warn_once(f"Dialogue: {where} has no \"text\"")
+                if "goto" in line:
+                    check_target(line["goto"], where)
+                if "do" in line and line["do"] not in self.actions:
+                    _warn_once(f"Dialogue: {where} wants to do '{line['do']}' but it is "
+                               f"not in actions=, e.g. actions={{\"{line['do']}\": "
+                               f"{line['do']}}}")
+                check_picture(line.get("portrait"), where)
+                for choice in line.get("choices", []):
+                    if not isinstance(choice, (list, tuple)) or len(choice) < 2:
+                        _warn_once(f"Dialogue: {where} has a choice {choice!r} - each "
+                                   f"choice should be [\"button text\", \"part\"]")
+                    else:
+                        check_target(choice[1], f"the choice '{choice[0]}' in {where}")
+
+    # ---------- starting, moving on and stopping ----------
+
+    @property
+    def talking(self):
+        """True while the conversation box is open."""
+        return self.visible
+
+    def start(self, part="start"):
+        """Open the conversation at a part (the "start" part if you leave it out)."""
+        if part not in self.script and part not in self._quick:
+            # Show the problem in the box, where the student will see it
+            if self._load_error:
+                message = self._load_error
+            else:
+                message = f"(The script has no part called '{part}')"
+                _warn_once(f"Dialogue: there is no part called '{part}'. Parts are: "
+                           f"{', '.join(str(p) for p in self.script)}")
+            self._quick = {"(problem)": [{"speaker": None, "text": message}]}
+            part = "(problem)"
+        self._speaker = None
+        self.visible = True
+        self._go_to(part)
+
+    def say(self, speaker, text=None):
+        """
+        Show one line with no script, e.g. say("Sign", "Danger! Keep out.").
+        say("The door is locked.") shows it with no name.
+        """
+        if text is None:
+            speaker, text = None, speaker
+        self._quick = {"(say)": [{"speaker": speaker, "text": str(text)}]}
+        self.start("(say)")
+
+    def _go_to(self, part):
+        """Jump to the first line of a part ("end" ends the conversation)."""
+        if part == "end" or part is None:
+            self.stop()
+            return
+        self.part = part
+        self.line = 0
+        self._show_line()
+
+    def _show_line(self):
+        """Show the line we are up to (or end, if the part has run out)."""
+        lines = self._lines_of(self.part)
+        if self.line >= len(lines):
+            self.stop()
+            return
+        line = self._line_dict(lines[self.line])
+        if "speaker" in line:
+            self._speaker = line["speaker"]
+        self._current = line
+        self.text.config(text=str(line.get("text", "")))
+        self.text.restart()           # type it out, even if it's the same words
+        self._blink = 0
+        self._make_buttons()
+        if isinstance(line.get("set"), dict):
+            for name, value in line["set"].items():
+                self.flags[name] = value
+        # Done last: the function might start a different conversation
+        action = self.actions.get(line.get("do"))
+        if action:
+            action()
+
+    def next(self):
+        """Show the rest of the line, or go on to the next line (a click / Space)."""
+        if not self.visible:
+            return
+        if self.text.typing:
+            self.text.skip()
+            return
+        if self._choices():
+            return                    # the player has to pick a choice
+        if "goto" in self._current:
+            self._go_to(self._current["goto"])
+            return
+        self.line += 1
+        self._show_line()
+
+    def choose(self, number):
+        """Pick a choice: 0 = the first one (same as clicking it)."""
+        choices = self._choices()
+        if self.visible and 0 <= number < len(choices):
+            self._go_to(choices[number][1])
+
+    def stop(self):
+        """End the conversation now (runs on_end)."""
+        was_talking = self.visible
+        self.visible = False
+        self.part = None
+        self._buttons = []
+        self._focus = None
+        if was_talking and self.on_end:
+            self.on_end()
+
+    # ---------- choices ----------
+
+    def _choices(self):
+        """The choices on this line that can be shown (checking any "if")."""
+        shown = []
+        for choice in self._current.get("choices", []):
+            if not isinstance(choice, (list, tuple)) or len(choice) < 2:
+                continue
+            extra = choice[2] if len(choice) > 2 and isinstance(choice[2], dict) else {}
+            if "if" in extra and not self.flags.get(extra["if"]):
+                continue              # that flag isn't True yet: hide it
+            shown.append(choice)
+        return shown
+
+    def _make_buttons(self):
+        """One Button for each choice, all the same width."""
+        choices = self._choices()
+        # Each Button fits its own text first, then they all get the widest width
+        self._buttons = [Button(0, 0, None, self.CHOICE_HEIGHT, str(choice[0]),
+                                font_size=24,
+                                command=lambda n=number: self.choose(n))
+                         for number, choice in enumerate(choices)]
+        widest = max([button.width for button in self._buttons] or [0])
+        for button in self._buttons:
+            button.config(width=widest)
+        self._focus = None
+        if self._buttons and self.keys:
+            self._focus = FocusGroup(*self._buttons, keys=self.keys, active=True)
+
+    def _choices_showing(self):
+        """Choices appear once the line has finished typing."""
+        return bool(self._buttons) and not self.text.typing
+
+    def _place_buttons(self, box):
+        """Stack the choices just above the box's right side (below it if no room)."""
+        gap = 6
+        total = len(self._buttons) * (self.CHOICE_HEIGHT + gap)
+        top = box.top - total
+        if top < 0:
+            top = box.bottom + gap
+        for number, button in enumerate(self._buttons):
+            button.x = box.right - button.width
+            button.y = top + number * (self.CHOICE_HEIGHT + gap)
+
+    # ---------- the game loop ----------
+
+    def handle_event(self, event, offset=(0, 0)):
+        """Returns True if it used the event (always for clicks while talking)."""
+        if not self.visible:
+            return False
+        clicks = (pg.MOUSEBUTTONDOWN, pg.MOUSEBUTTONUP, pg.MOUSEWHEEL)
+        if self._choices_showing():
+            self._place_buttons(self.get_rect(offset))
+            for button in self._buttons:
+                if button.handle_event(event):
+                    return True
+            if self._focus and self._focus.handle_event(event):
+                return True
+            return event.type in clicks       # clicks elsewhere do nothing
+        left_click = event.type == pg.MOUSEBUTTONDOWN and event.button == 1
+        next_key = event.type == pg.KEYDOWN and event.key in self.NEXT_KEYS
+        if left_click or next_key:
+            self.next()
+            return True
+        return event.type in clicks           # other clicks don't reach the game
+
+    def update(self, tick):
+        """Types the text out. tick = milliseconds since the last frame."""
+        if not self.visible:
+            return
+        self.text.type_speed = self.type_speed      # in case config() changed them
+        self.text.type_sound = self.type_sound
+        self.text.update(tick)
+        self._blink += tick
+
+    def _speaker_info(self):
+        """The speakers= settings for whoever is talking (or {})."""
+        return self.speakers.get(self._speaker, {}) or {}
+
+    def _portrait(self, size):
+        """The portrait picture for this line, scaled to size (or None)."""
+        picture = self._current.get("portrait", self._speaker_info().get("portrait"))
+        if picture is None:
+            return None
+        try:
+            return load_image(picture, (size, size))
+        except (pg.error, FileNotFoundError, OSError):
+            _warn_once(f"Dialogue: can't load the portrait '{picture}'")
+            return None
+
+    def _areas(self, box):
+        """Work out where the portrait, the name and the text go inside the box."""
+        pad = self.PAD
+        size = self.portrait_size or box.height - 2 * pad
+        picture = self._portrait(size)
+        text_left, text_right = box.x + pad, box.right - pad
+        portrait_rect = None
+        if picture is not None:
+            if self._speaker_info().get("side") == "right":
+                portrait_rect = pg.Rect(box.right - pad - size, box.y + pad, size, size)
+                text_right = portrait_rect.x - pad
+            else:
+                portrait_rect = pg.Rect(box.x + pad, box.y + pad, size, size)
+                text_left = portrait_rect.right + pad
+        top = box.y + pad
+        name_pos = None
+        if self._speaker:
+            name_pos = (text_left, top)
+            top += self._font().get_height() + 4
+        text_rect = pg.Rect(text_left, top, max(10, text_right - text_left),
+                            max(10, box.bottom - pad - top))
+        return picture, portrait_rect, name_pos, text_rect
+
+    def draw(self, screen, offset=(0, 0)):
+        if not self.visible:
+            return
+        self._last_offset = offset
+        box = self.get_rect(offset)
+        radius = self.cget("border_radius") or 0
+        pg.draw.rect(screen, self.cget("bg"), box, border_radius=radius)
+        border = self.cget("border_width") or 0
+        if border and self.cget("border_color") is not None:
+            pg.draw.rect(screen, self.cget("border_color"), box, border, radius)
+
+        picture, portrait_rect, name_pos, text_rect = self._areas(box)
+        if picture is not None:
+            screen.blit(picture, portrait_rect)
+            if border and self.cget("border_color") is not None:
+                pg.draw.rect(screen, self.cget("border_color"), portrait_rect, 2)
+
+        # The speaker's name (a speaker can have their own name colour)
+        if name_pos is not None:
+            name_fg = self._speaker_info().get("name_fg") or self.cget("name_fg")
+            name = self._font().render(str(self._speaker), True, name_fg)
+            if self.cget("name_bg") is not None:
+                behind = name.get_rect(topleft=name_pos).inflate(12, 4)
+                pg.draw.rect(screen, self.cget("name_bg"), behind, border_radius=4)
+            screen.blit(name, name_pos)
+
+        # The words (the Message types them out)
+        self.text.fg = self.cget("fg")
+        self.text.font_name = self.cget("font_name")
+        self.text.font_size = self.cget("font_size")
+        self.text.width = text_rect.width
+        self.text.x, self.text.y = text_rect.topleft
+        self.text.draw(screen)
+        if self.text.height > text_rect.height + 2:
+            _warn_once(f"Dialogue: the line \"{str(self._current.get('text'))[:30]}...\" "
+                       f"is too long for the box. Make the box taller or split it "
+                       f"into two lines.")
+
+        # "Press to continue" triangle, blinking, when the line is finished
+        if not self.text.typing and not self._buttons and (self._blink // 400) % 2 == 0:
+            x, y = box.right - self.PAD - 8, box.bottom - self.PAD - 4
+            pg.draw.polygon(screen, self.cget("fg"), [(x - 8, y - 10), (x + 8, y - 10),
+                                                      (x, y)])
+
+        if self._choices_showing():
+            self._place_buttons(box)
+            for button in self._buttons:
+                button.draw(screen)
+
+        if Debug.on:
+            self._draw_debug(screen, box, portrait_rect, text_rect)
+
+    def _draw_debug(self, screen, box, portrait_rect, text_rect):
+        """F1 view: outline each area and show where the conversation is up to."""
+        pink, green = (255, 0, 255), (0, 255, 0)
+        if portrait_rect is not None:
+            pg.draw.rect(screen, pink, portrait_rect, 1)
+        pg.draw.rect(screen, green, text_rect, 1)
+        for button in self._buttons:
+            pg.draw.rect(screen, pink, button.rect, 1)
+        draw_text(screen, f"part: {self.part}, line {self.line + 1}",
+                  box.x + 4, box.bottom + 2, fg=green, font_size=18)
 
 
 # ================================

@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>f455a13a-f7b3-42d7-99ec-a801e987b2df</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>examples\spawner_example.py</StartupFile>
+    <StartupFile>docs\make_guide_pictures.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -83,6 +83,8 @@
     <Compile Include="tests\test_sprite_extras.py" />
     <Compile Include="examples\parallax_example.py" />
     <Compile Include="tests\test_camera_world_extras.py" />
+    <Compile Include="examples\dialogue_example.py" />
+    <Compile Include="tests\test_dialogue.py" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="docs\" />
@@ -107,6 +109,9 @@
     <Content Include="examples\assets\heart_full.png" />
     <Content Include="examples\assets\heart_half.png" />
     <Content Include="examples\assets\heart_empty.png" />
+    <Content Include="examples\assets\portrait_wizard.png" />
+    <Content Include="examples\assets\portrait_shopkeeper.png" />
+    <Content Include="examples\assets\shop_talk.json" />
     <Content Include="examples\assets\item_sword.png" />
     <Content Include="examples\assets\item_shield.png" />
     <Content Include="examples\assets\item_potion.png" />
