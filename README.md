@@ -114,6 +114,7 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Game-screen text and bars: outlined text, bars that go red, health bars over enemies, a fading pause menu, high contrast | [`hud_example.py`](examples/hud_example.py) |
 | Change how everything looks (themes, images) | [`style_example.py`](examples/style_example.py) |
 | A pause menu with tabs, used with the keyboard | [`settings_menu_example.py`](examples/settings_menu_example.py) |
+| Change the mouse pointer (crosshair, hand over buttons, your own picture) | [`cursor_example.py`](examples/cursor_example.py) |
 | Sounds on key presses (pressed vs held keys) | [`keyboard_sound_example.py`](examples/keyboard_sound_example.py) |
 | Background music and volume controls | [`music_example.py`](examples/music_example.py) |
 | Drag things with the mouse, inventory slots, item stats | [`drag_grid_example.py`](examples/drag_grid_example.py) |
@@ -200,6 +201,7 @@ and move, hide and update with it.
 | `FocusGroup` | Use widgets with the keyboard or a controller |
 | `KeyboardInput` | Was a key just pressed, is it held, was it let go? |
 | `MouseInput` | The same for mouse buttons, plus position and scroll wheel |
+| `Cursor` | Change the mouse pointer: built-in ones or your own picture, per widget (`cursor="hand"`) or sprite |
 | `SoundEffect` | Short sounds, safe to use in the game loop |
 | `Music` | Background music with fades and playlists |
 | `Audio`, `init_audio()` | Sound setup and volume (links to widgets) |
@@ -796,6 +798,26 @@ if keys.is_pressed("right"):            # EVERY frame while held -> movement
 `MouseInput` works the same way with `"left"`, `"middle"` and `"right"`,
 plus `mouse.pos`, `mouse.moved` and `mouse.wheel`.
 
+### Mouse pointer (Cursor)
+```python
+Cursor.set("crosshair")                       # in init_pygame(): a built-in pointer
+Cursor.add("aim", "assets/crosshair.png", hotspot="center")   # your own picture
+Cursor.set("aim")
+
+play = Button(20, 80, 150, 50, "Play", command=start, cursor="hand")   # any widget
+Cursor.attach(enemy, "aim_red", camera=camera)   # over a sprite (camera= if it scrolls)
+
+Cursor.update(tick)                           # in update(tick)
+Cursor.draw(screen)                           # LAST in draw_game()
+```
+Built-in names: `"arrow"`, `"hand"`, `"text"`, `"crosshair"`, `"wait"`, `"move"`,
+`"no"`, `"resize_lr"`, `"resize_ud"` (tkinter names like `"hand2"` work too).
+The **hotspot** is the pixel that clicks: `"topleft"` (default), `"center"` or
+`(x, y)`. A widget without a `cursor` uses its Frame's; disabled widgets keep
+the normal pointer. `Cursor.hide()` / `show()`, `Cursor.detach(enemy)`,
+`Cursor.reset()`. If the computer can't use a picture as the pointer, or you
+give `drawn=True`, `Cursor.draw(screen)` draws it instead. F1 shows the hotspot.
+
 ### Sound
 ```python
 init_audio()                            # in init_pygame(), BEFORE pg.init()
@@ -980,6 +1002,10 @@ often trip students up. Everything here is deliberate.
 | Moving less than a pixel | pygame rects only hold whole numbers, so `rect.x += 0.4` does nothing | `SpriteObject(..., smooth_move=True)` keeps the fractions | slow speeds and `speed * tick / 1000` work |
 | Which sprite is in front | (pygame) a `Group` draws in the order things were added | `World(..., y_sort=True)` draws whatever is lower on the screen in front, mixed with "midground" map layers | walk behind trees and signs with no extra code |
 | Repeating something (spawning enemies) | a function that re-schedules itself with `root.after()` - easy to start twice, forget to re-schedule, or leave running after the level ends | `Spawner(make, every=1500, max_alive=6)` and `Waves(spawner, [3, 5, 8])`, run by `update(tick)` | less code, an alive limit and waves built in, and it stops when you stop updating it |
+| Cursor names | old X11 names: `"hand2"`, `"xterm"`, `"fleur"`, `"watch"` | plain names: `"hand"`, `"text"`, `"move"`, `"wait"` (the tkinter names still work) | students can guess them |
+| Your own picture as the pointer | different on every computer (`"@file.xbm"` on Linux, `.cur` files on Windows), no PNG | `Cursor.add("aim", "crosshair.png", hotspot="center")` works everywhere | one way that works on every computer |
+| `cursor` on a disabled widget | still shows (e.g. a hand over a greyed-out button) | disabled widgets show the normal pointer | a hand says "click me", which is wrong when it can't be clicked |
+| A wrong cursor name | `TclError: bad cursor spec` | a `ValueError` that lists every name | typos are easy to fix |
 | Going back to idle after an attack | (pygame) check every frame whether the animation has ended | `play_once("attack", then="idle")`, `on_finish=`, `animator.busy` | less code in `update()` |
 
 **Things tkinter has that this library doesn't (yet):** multi-line text
@@ -1095,6 +1121,15 @@ Everything here is **added** - code written for v1.0 still works the same.
   New pictures `portrait_wizard.png` and `portrait_shopkeeper.png`, new script
   `shop_talk.json`, new example `dialogue_example.py`, new test
   `test_dialogue.py`. No existing class changed.
+- New `Cursor` to change the mouse pointer: built-in pointers (plain names and
+  tkinter's), your own pictures with a hotspot, `attach()` for sprites, `hide()`
+  and `show()`. Every widget has a new `cursor=` option (the last keyword, default
+  `None` = the pointer doesn't change), like tkinter. Widgets now call
+  `self._drawn(screen, offset)` at the start of `draw()`; if you made your own
+  widget class, it still works, it just can't have a `cursor`. `Scenes` undo
+  `Cursor.set()` and `Cursor.attach()` made in a scene when it ends. New pictures
+  `crosshair.png`, `crosshair_red.png` and `hand.png`, new example
+  `cursor_example.py`, new test `test_cursor.py`. Nothing changes until you use it.
 
 ## Example art
 

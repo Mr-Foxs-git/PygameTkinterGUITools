@@ -416,6 +416,8 @@ class Widget:
     offset is added to the position. Frames and Popups use it to move
     their children; you normally leave it out.
     state="disabled" greys the widget out and stops it reacting.
+    cursor="hand" changes the mouse pointer while it is over the widget
+    (every widget has this option - see the Cursor class).
 
     Fades and slides use the clock, so they need no update(tick) and keep
     working while timers are paused (e.g. a pause menu). Fades show on
@@ -445,6 +447,7 @@ class Widget:
         self.focused = False        # set by FocusGroup
         self.parent = None          # the Frame / Notebook / Popup it is in
         self._last_offset = (0, 0)  # where it was last drawn (used by FocusGroup)
+        self.cursor = None          # mouse pointer while over it, e.g. "hand" (see Cursor)
         self._layout = None         # ("grid" / "pack" / "place", options)
         self._layout_size = None    # size given by a layout (sticky / fill)
         self._made_in_parent = parent is not None
@@ -702,6 +705,17 @@ class Widget:
             pg.draw.rect(screen, self.cget("focus_color"), r.inflate(8, 8), 3,
                          border_radius=6)
 
+    def _drawn(self, screen, offset):
+        """
+        Called at the start of draw(). Remembers where the widget was drawn
+        (FocusGroup and Tooltip use this). Widgets with a cursor, and Popups,
+        also tell Cursor they are on screen this frame, so Cursor knows
+        which pointer to show when the mouse is over them.
+        """
+        self._last_offset = offset
+        if self.cursor is not None or isinstance(self, Popup):
+            Cursor._on_screen(self, offset, screen.get_clip())
+
     # ---- game loop methods ----
     def draw(self, screen, offset=(0, 0)):
         pass
@@ -848,8 +862,9 @@ class Label(Widget):
                  center=False, visible=True, style=None,
                  outline=0, outline_color=None, outline_colour=None,
                  shadow=False, shadow_offset=(2, 2), shadow_color=None,
-                 shadow_colour=None, justify="left"):
+                 shadow_colour=None, justify="left", cursor=None):
         super().__init__(x, y, center=center, visible=visible, style=style)
+        self.cursor = cursor
         self.text = text
         self.textvariable = textvariable
         self.fg = fg
@@ -937,6 +952,7 @@ class Label(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
+        self._drawn(screen, offset)
         self._refresh()                      # text may have been changed directly
         r = self.get_rect(offset)
         if self.cget("bg") is not None:
@@ -996,8 +1012,9 @@ class Message(Widget):
                  font_name=None, font_size=None, justify="left", padding=8,
                  line_spacing=4, center=False, visible=True, style=None,
                  type_speed=None, type_sound=None, on_done=None,
-                 skip_keys=(pg.K_SPACE, pg.K_RETURN, pg.K_KP_ENTER)):
+                 skip_keys=(pg.K_SPACE, pg.K_RETURN, pg.K_KP_ENTER), cursor=None):
         super().__init__(x, y, width, 0, center, visible, style)
+        self.cursor = cursor
         self.text = text
         self.textvariable = textvariable
         self.fg = fg
@@ -1117,6 +1134,7 @@ class Message(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
+        self._drawn(screen, offset)
         self._refresh()
         r = self.get_rect(offset)
         if self.cget("bg") is not None:
@@ -1195,8 +1213,9 @@ class Button(Widget):
                  shadow_color=None, shadow_colour=None,
                  center=False, visible=True, state="normal", style=None,
                  active_bg=None, active_image=None, sound=None,
-                 repeatdelay=0, repeatinterval=0):
+                 repeatdelay=0, repeatinterval=0, cursor=None):
         super().__init__(x, y, width or 0, height or 0, center, visible, style, state)
+        self.cursor = cursor
         self._given_size = (width, height)     # None = fit the text
         self.text = text
         self.command = command
@@ -1257,7 +1276,7 @@ class Button(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         self._refresh()
         r = self.get_rect(offset)
         hovered = self.is_hovered(offset) or self.focused
@@ -1338,8 +1357,9 @@ class Separator(Widget):
     """
 
     def __init__(self, x, y=0, length=200, orient="horizontal", fg=None, thickness=2,
-                 center=False, visible=True, style=None):
+                 center=False, visible=True, style=None, cursor=None):
         super().__init__(x, y, center=center, visible=visible, style=style)
+        self.cursor = cursor
         self.length = length
         self.orient = orient
         self.fg = fg
@@ -1354,6 +1374,7 @@ class Separator(Widget):
 
     def draw(self, screen, offset=(0, 0)):
         if self.visible:
+            self._drawn(screen, offset)
             pg.draw.rect(screen, self.cget("fg"), self.get_rect(offset))
 
 
@@ -1413,8 +1434,9 @@ class TextBox(Widget):
                  label=None, label_fg=None, label_gap=10, label_position="left",
                  on_enter=None, center=False, visible=True, state="normal", style=None,
                  show=None, placeholder=None, placeholder_fg=None, allowed=None,
-                 on_change=None):
+                 on_change=None, cursor=None):
         super().__init__(x, y, center=center, visible=visible, style=style, state=state)
+        self.cursor = cursor
         self.on_change = None        # set at the end, so the starting text doesn't run it
         self.max_chars = max_chars
         self.textvariable = textvariable
@@ -1609,7 +1631,7 @@ class TextBox(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         self._refresh()
         font = self._font()
         top_left = self.get_rect(offset).topleft
@@ -1681,8 +1703,9 @@ class Checkbutton(Widget):
                  command=None, fg=None, bg=None, box_bg=None,
                  check_color=None, check_colour=None, image=None, selected_image=None,
                  box_size=None, font_name=None, font_size=None,
-                 center=False, visible=True, state="normal", style=None):
+                 center=False, visible=True, state="normal", style=None, cursor=None):
         super().__init__(x, y, center=center, visible=visible, style=style, state=state)
+        self.cursor = cursor
         self.text = text
         self.variable = variable if variable is not None else BooleanVar(False)
         self.onvalue = onvalue
@@ -1766,7 +1789,7 @@ class Checkbutton(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         self._refresh()
         r = self.get_rect(offset)
         if self.cget("bg") is not None:
@@ -1871,8 +1894,9 @@ class Scale(Widget):
                  variable=None, resolution=1, command=None, label=None, showvalue=True,
                  fg=None, accent=None, trough_color=None, trough_colour=None,
                  thickness=8, handle_image=None, font_name=None, font_size=None,
-                 center=False, visible=True, state="normal", style=None):
+                 center=False, visible=True, state="normal", style=None, cursor=None):
         super().__init__(x, y, center=center, visible=visible, style=style, state=state)
+        self.cursor = cursor
         self.from_ = from_
         self.to = to
         self.length = length
@@ -1983,7 +2007,7 @@ class Scale(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         self._refresh()
         r = self.get_rect(offset)
         font = self._font()
@@ -2050,8 +2074,9 @@ class Spinbox(Widget):
                  wrap=False, width_chars=4, command=None,
                  fg=None, bg=None, button_bg=None, border_color=None, border_colour=None,
                  font_name=None, font_size=None,
-                 center=False, visible=True, state="normal", style=None):
+                 center=False, visible=True, state="normal", style=None, cursor=None):
         super().__init__(x, y, center=center, visible=visible, style=style, state=state)
+        self.cursor = cursor
         self.from_ = from_
         self.to = to
         self.increment = increment
@@ -2142,7 +2167,7 @@ class Spinbox(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         self._refresh()
         r = self.get_rect(offset)
         pg.draw.rect(screen, self.cget("bg"), r)
@@ -2201,8 +2226,9 @@ class Listbox(Widget):
                  fg=None, bg=None, select_fg=None, select_bg=None,
                  border_color=None, border_colour=None, font_name=None, font_size=None,
                  center=False, visible=True, state="normal", style=None,
-                 selectmode="single"):
+                 selectmode="single", cursor=None):
         super().__init__(x, y, width, 0, center, visible, style, state)
+        self.cursor = cursor
         if selectmode == "browse":
             selectmode = "single"       # tkinter's name for the normal mode
         if selectmode not in ("single", "multiple"):
@@ -2359,7 +2385,7 @@ class Listbox(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         self._refresh()
         r = self.get_rect(offset)
         font = self._font()
@@ -2430,8 +2456,10 @@ class Combobox(Widget):
     def __init__(self, x, y=0, width=200, values=None, textvariable=None, command=None,
                  max_rows=6, fg=None, bg=None, select_fg=None, select_bg=None,
                  border_color=None, border_colour=None, font_name=None, font_size=None,
-                 center=False, visible=True, state="normal", style=None, editable=False):
+                 center=False, visible=True, state="normal", style=None, editable=False,
+                 cursor=None):
         super().__init__(x, y, width, 0, center, visible, style, state)
+        self.cursor = cursor
         self.editable = editable
         self.typed = None            # editable: the words typed so far (None = not typing)
         self.values = list(values) if values else []
@@ -2592,7 +2620,7 @@ class Combobox(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         r = self.get_rect(offset)
         font = self._font()
         pg.draw.rect(screen, self.cget("bg"), r)
@@ -2694,8 +2722,9 @@ class Progressbar(Widget):
                  bar_image=None, trough_image=None, font_name=None, font_size=None,
                  center=False, visible=True, style=None,
                  low_color=None, low_colour=None, low_at=0.25, animate=False,
-                 ghost_color=None, ghost_colour=None):
+                 ghost_color=None, ghost_colour=None, cursor=None):
         super().__init__(x, y, center=center, visible=visible, style=style)
+        self.cursor = cursor
         self.length = length
         self.thickness = thickness
         self.orient = orient
@@ -2791,6 +2820,7 @@ class Progressbar(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
+        self._drawn(screen, offset)
         self._refresh()
         r = self.get_rect(offset)
         radius = self.cget("border_radius") or 0
@@ -2859,8 +2889,9 @@ class Container(Widget):
     """
 
     def __init__(self, x, y, width, height, bg=None, border_color=None, border_width=None,
-                 pad_x=10, pad_y=10, center=False, visible=True, style=None):
+                 pad_x=10, pad_y=10, center=False, visible=True, style=None, cursor=None):
         super().__init__(x, y, width or 0, height or 0, center, visible, style)
+        self.cursor = cursor
         self._auto_size = (width is None, height is None)   # None = fit the children
         self.bg = bg
         self.border_color = border_color
@@ -3333,16 +3364,17 @@ class Frame(Container):
 
     def __init__(self, x, y=0, width=None, height=None, bg=None,
                  border_color=None, border_colour=None, border_width=None,
-                 pad_x=10, pad_y=10, center=False, visible=True, style=None):
+                 pad_x=10, pad_y=10, center=False, visible=True, style=None, cursor=None):
         super().__init__(x, y, width, height, bg, _pick(border_color, border_colour),
                          border_width, pad_x, pad_y, center, visible, style)
+        self.cursor = cursor
 
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
         if self._fade_layer(screen, offset):     # fading in / out
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         self._arrange()
         self._draw_box(screen, self.get_rect(offset))
         self.draw_children(screen, offset)
@@ -3358,10 +3390,11 @@ class Root(Frame):
         root.handle_event(event)    root.update(tick)    root.draw(screen)
     """
 
-    def __init__(self, screen, bg="", padding=0):
+    def __init__(self, screen, bg="", padding=0, cursor=None):
         self.menu = None             # root.config(menu=menubar) - like tkinter
         super().__init__(0, 0, screen.get_width(), screen.get_height(), bg=bg,
                          border_width=0, pad_x=padding, pad_y=padding)
+        self.cursor = cursor
 
     def _refresh(self):
         if self.menu is not None:
@@ -3562,7 +3595,7 @@ class ScrolledFrame(Frame):
             return
         if self._fade_layer(screen, offset):     # fading in / out
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         self._arrange()
         self._draw_box(screen, self.get_rect(offset))
         v = self._viewport(offset)
@@ -3653,8 +3686,9 @@ class Table(Widget):
                  fg=None, bg=None, select_fg=None, select_bg=None, heading_bg=None,
                  font_name=None, font_size=None, center=False, visible=True,
                  state="normal", style=None, border_color=None, border_colour=None,
-                 edit_mode="double_click"):
+                 edit_mode="double_click", cursor=None):
         super().__init__(x, y, center=center, visible=visible, style=style, state=state)
+        self.cursor = cursor
         self.columns = list(columns)
         self.rows = rows
         self._given_width = width
@@ -4147,7 +4181,7 @@ class Table(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         self._refresh()
         r, widths, xs = self._table_layout(offset)
         font = self._font()
@@ -4698,7 +4732,7 @@ class LabelFrame(Frame):
             return
         if self._fade_layer(screen, offset):     # fading in / out
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         self._arrange()
         r = self.get_rect(offset)
         font = self._font()
@@ -4751,9 +4785,11 @@ class Notebook(Container):
     def __init__(self, x, y=0, width=400, height=300, tab_height=36, command=None,
                  fg=None, bg=None, tab_bg=None, select_bg=None,
                  border_color=None, border_colour=None, border_width=None,
-                 font_name=None, font_size=None, center=False, visible=True, style=None):
+                 font_name=None, font_size=None, center=False, visible=True, style=None,
+                 cursor=None):
         super().__init__(x, y, width, height, bg, _pick(border_color, border_colour),
                          border_width, 0, 0, center, visible, style)
+        self.cursor = cursor
         self.tab_height = tab_height
         self.command = command
         self.fg = fg
@@ -4830,7 +4866,7 @@ class Notebook(Container):
             return
         if self._fade_layer(screen, offset):     # fading in / out
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         self._arrange()
         r = self.get_rect(offset)
         page = pg.Rect(r.x, r.y + self.tab_height, r.width, r.height - self.tab_height)
@@ -4884,9 +4920,10 @@ class Popup(Container):
     def __init__(self, x, y=0, width=300, height=200, title="Popup", fg=None, bg=None,
                  border_color=None, border_colour=None, border_width=None,
                  dim=True, pad_x=10, pad_y=0, center=False, visible=False, style=None,
-                 title_font_size=None, title_font_name=None):
+                 title_font_size=None, title_font_name=None, cursor=None):
         super().__init__(x, y, width, height, bg, _pick(border_color, border_colour),
                          border_width, pad_x, pad_y, center, visible, style)
+        self.cursor = cursor
         self.title = title
         self.fg = fg
         self.dim = dim
@@ -4911,7 +4948,7 @@ class Popup(Container):
             return
         if self._fade_layer(screen, offset):     # fading in / out
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         self.top_space = self._title_space()
         self._arrange()
 
@@ -5115,6 +5152,7 @@ class MessageBox(Popup):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
+        self._drawn(screen, offset)
         if self._fade_layer(screen, offset):     # fading in / out
             return
         self._place_on_screen()
@@ -5542,9 +5580,10 @@ class Dialogue(Widget):
                  actions=None, flags=None, type_speed=40, type_sound=None, on_end=None,
                  keys="arrows", portrait_size=None, fg=None, bg=None, name_fg=None,
                  name_bg=None, border_color=None, border_colour=None, border_width=None,
-                 font_name=None, font_size=None, center=False, style=None):
+                 font_name=None, font_size=None, center=False, style=None, cursor=None):
         # It starts hidden: start() opens it
         super().__init__(x, y, width, height, center, False, style)
+        self.cursor = cursor
         self.speakers = speakers or {}
         self.actions = actions or {}
         # Keep the SAME dict the student gave, so their copy sees the changes
@@ -5874,7 +5913,7 @@ class Dialogue(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
-        self._last_offset = offset
+        self._drawn(screen, offset)
         box = self.get_rect(offset)
         radius = self.cget("border_radius") or 0
         pg.draw.rect(screen, self.cget("bg"), box, border_radius=radius)
@@ -7812,6 +7851,264 @@ class MouseInput:
 
     def held_time(self, button):
         return max([self._held_ms.get(b, 0) for b in self._codes(button) if b in self._held] or [0])
+
+
+# ================================
+# Cursor (change the mouse pointer)
+# ================================
+
+class Cursor:
+    """
+    Change the mouse pointer: a built-in one, or your own picture.
+    There is only one mouse, so you use the class itself (like Debug and
+    Particles) - no need to make one.
+
+        Cursor.set("crosshair")                              # a built-in pointer
+        Cursor.add("aim", "assets/crosshair.png", hotspot="center")
+        Cursor.set("aim")                                    # your own picture
+
+        Button(20, 80, 150, 50, "Play", cursor="hand")       # while over a widget
+        Cursor.attach(enemy, "aim_red", camera=camera)       # while over a sprite
+
+        Cursor.update(tick)      # in update(tick): picks the pointer to show
+        Cursor.draw(screen)      # LAST in draw_game() (for drawn pictures)
+
+    Built-in names: "arrow", "hand", "text", "crosshair", "wait", "move",
+    "no", "resize_lr", "resize_ud". tkinter's names work too
+    ("hand2", "xterm", "watch", "fleur", "cross", ...).
+
+    The hotspot is the pixel of the picture that does the clicking:
+    "topleft" (the default, like an arrow), "center" (like a crosshair),
+    or (x, y) in the picture's pixels.
+
+    Pictures use the computer's real pointer, so they move smoothly. If the
+    computer can't do that, or you give drawn=True, the normal pointer is
+    hidden and the picture is drawn by Cursor.draw(screen) instead.
+
+    Which pointer is shown each frame:
+        1. nothing, after Cursor.hide()
+        2. the top-most widget under the mouse that has a cursor
+           (disabled widgets are skipped, because they can't be clicked)
+           (an open Popup covers the widgets under it)
+        3. the last attach()ed thing under the mouse
+        4. the normal pointer from Cursor.set()  ("arrow" to start with)
+    """
+
+    # Built-in pointer names -> pygame's system cursors
+    BUILT_IN = {
+        "arrow": pg.SYSTEM_CURSOR_ARROW,
+        "hand": pg.SYSTEM_CURSOR_HAND,
+        "text": pg.SYSTEM_CURSOR_IBEAM,
+        "crosshair": pg.SYSTEM_CURSOR_CROSSHAIR,
+        "wait": pg.SYSTEM_CURSOR_WAIT,
+        "move": pg.SYSTEM_CURSOR_SIZEALL,
+        "no": pg.SYSTEM_CURSOR_NO,
+        "resize_lr": pg.SYSTEM_CURSOR_SIZEWE,
+        "resize_ud": pg.SYSTEM_CURSOR_SIZENS,
+    }
+    # tkinter's (old X11) names -> our plain names
+    TKINTER_NAMES = {
+        "hand1": "hand", "hand2": "hand", "xterm": "text", "watch": "wait",
+        "fleur": "move", "cross": "crosshair", "tcross": "crosshair",
+        "left_ptr": "arrow", "sb_h_double_arrow": "resize_lr",
+        "sb_v_double_arrow": "resize_ud",
+    }
+
+    pictures = {}         # name -> {"image": Surface, "hotspot": (x, y), "drawn": bool}
+    normal = "arrow"      # the pointer when the mouse is over nothing special
+    current = "arrow"     # the pointer being shown now
+    hidden = False
+    targets = []          # attach()ed things: [thing, name, camera, scene, was in a group]
+    _widgets = []         # (widget, offset, clip) for widgets drawn since the last update
+    _shown = None         # what the real pointer was last set to
+    _normal_scene = None  # the Scene that called set() (undone when it ends)
+
+    # ---- choosing pointers ----
+    @classmethod
+    def set(cls, cursor="arrow", hotspot="topleft", size=None, drawn=False):
+        """
+        Set the normal pointer: a built-in name, a name made with add(),
+        or a picture (file name or Surface).
+        """
+        if not isinstance(cursor, str) or cursor not in cls.pictures and "." in cursor:
+            # A picture: give it a name (its file name) so it can be reused
+            name = cursor if isinstance(cursor, str) else "picture"
+            cls.add(name, cursor, hotspot, size, drawn)
+            cursor = name
+        cls.normal = cls._name_of(cursor)
+        cls._normal_scene = _timer_scene[0]
+        cls.current = cls.normal
+        cls._show(cls.current)
+
+    @classmethod
+    def add(cls, name, image, hotspot="topleft", size=None, drawn=False):
+        """
+        Give a picture a name, e.g. Cursor.add("aim", "assets/crosshair.png", hotspot="center").
+        size scales the picture: a number (32) or (width, height).
+        """
+        if isinstance(size, (int, float)):
+            size = (size, size)
+        picture = load_image(image, size)
+        w, h = picture.get_size()
+        if hotspot == "center":
+            hotspot = (w // 2, h // 2)
+        elif hotspot == "topleft":
+            hotspot = (0, 0)
+        hotspot = (int(hotspot[0]), int(hotspot[1]))
+        if not (0 <= hotspot[0] < w and 0 <= hotspot[1] < h):
+            raise ValueError(f"hotspot {hotspot} is outside the {w}x{h} picture")
+        cls.pictures[name] = {"image": picture, "hotspot": hotspot, "drawn": drawn}
+        cls._shown = None                    # the picture may have changed
+        return name
+
+    @classmethod
+    def attach(cls, target, name, camera=None):
+        """
+        Show this pointer while the mouse is over target (anything with a
+        .rect, e.g. a sprite). Give camera= for things in a scrolling world.
+        """
+        in_group = isinstance(target, pg.sprite.Sprite) and target.alive()
+        cls.targets.append([target, cls._name_of(name), camera, _timer_scene[0], in_group])
+
+    @classmethod
+    def detach(cls, target):
+        """Stop using a special pointer for target."""
+        cls.targets = [t for t in cls.targets if t[0] is not target]
+
+    @classmethod
+    def hide(cls):
+        """Hide the pointer (e.g. during a cutscene)."""
+        cls.hidden = True
+        cls._show(cls.current)
+
+    @classmethod
+    def show(cls):
+        cls.hidden = False
+        cls._show(cls.current)
+
+    @classmethod
+    def reset(cls):
+        """Back to the normal arrow, and forget every attach()."""
+        cls.targets = []
+        cls._widgets = []
+        cls.hidden = False
+        cls.normal = cls.current = "arrow"
+        cls._normal_scene = None
+        cls._show("arrow")
+
+    @classmethod
+    def _name_of(cls, name):
+        """Turn a name (or tkinter name) into one Cursor knows, or explain the mistake."""
+        if name in cls.pictures or name in cls.BUILT_IN:
+            return name
+        if name in cls.TKINTER_NAMES:
+            return cls.TKINTER_NAMES[name]
+        known = list(cls.BUILT_IN) + list(cls.pictures)
+        raise ValueError(f"Cursor has no pointer called '{name}'. Use one of: "
+                         f"{', '.join(known)} (or add your own picture with Cursor.add())")
+
+    # ---- every frame ----
+    @classmethod
+    def update(cls, tick=0):
+        """Work out which pointer to show this frame (call it in update(tick))."""
+        mouse = pg.mouse.get_pos()
+        choice = None
+        # 1. Widgets: the last one drawn is on top, so look from the end
+        for widget, offset, clip in reversed(cls._widgets):
+            area = widget.get_rect(offset).clip(clip)    # clip: e.g. inside a ScrolledFrame
+            if isinstance(widget, Popup) and widget.dim:
+                area = clip                              # a dimmed Popup covers the screen
+            if not area.collidepoint(mouse):
+                continue
+            if widget.cursor is not None and widget.state != "disabled":
+                choice = widget.cursor
+                break
+            if isinstance(widget, Popup):                # a Popup covers what is under it
+                break
+        cls._widgets = []
+        # 2. attach()ed things (forget sprites that were killed, e.g. enemies that died)
+        cls.targets = [t for t in cls.targets if not (t[4] and not t[0].alive())]
+        if choice is None:
+            for target, name, camera, scene, in_group in reversed(cls.targets):
+                if cls._over(target, camera, mouse):
+                    choice = name
+                    break
+        cls.current = cls._name_of(choice) if choice is not None else cls.normal
+        cls._show(cls.current)
+
+    @classmethod
+    def _over(cls, target, camera, mouse):
+        """True if the mouse is over an attach()ed thing."""
+        if not getattr(target, "visible", True):
+            return False
+        if isinstance(target, Widget):
+            return target.showing and target.get_rect(target._last_offset).collidepoint(mouse)
+        point = camera.screen_to_world(mouse) if camera is not None else mouse
+        return _rect_of(target).collidepoint(point)
+
+    @classmethod
+    def draw(cls, screen):
+        """Draw a drawn-mode picture at the mouse. Call it LAST in draw_game()."""
+        mx, my = pg.mouse.get_pos()
+        picture = cls.pictures.get(cls.current)
+        if not cls.hidden and picture is not None and picture["drawn"]:
+            hx, hy = picture["hotspot"]
+            screen.blit(picture["image"], (mx - hx, my - hy))
+        if Debug.on:
+            # Show the hotspot (the pixel that clicks) and the pointer's name
+            pg.draw.circle(screen, (255, 0, 255), (mx, my), 3)
+            words = get_font(None, 16).render(cls.current, True, (255, 0, 255))
+            screen.blit(words, (mx + 12, my + 12))
+
+    # ---- behind the scenes ----
+    @classmethod
+    def _on_screen(cls, widget, offset, clip):
+        """Called by widgets with a cursor when they are drawn (see Widget._drawn)."""
+        cls._widgets.append((widget, offset, clip))
+        if len(cls._widgets) > 2000:
+            # The list is only emptied by update(), so it must never be called
+            cls._widgets = []
+            _warn_once("A widget has a cursor, but Cursor.update(tick) is never called. "
+                       "Add Cursor.update(tick) to update(tick) to make widget cursors work.")
+
+    @classmethod
+    def _scene_ended(cls, scene):
+        """Undo set() and attach() calls made by a Scene that has just ended."""
+        cls.targets = [t for t in cls.targets if t[3] != scene]
+        if scene is not None and cls._normal_scene == scene:
+            cls.normal = "arrow"
+            cls._normal_scene = None
+
+    @classmethod
+    def _show(cls, name):
+        """Change the real mouse pointer, but only when it needs to change (it is slow)."""
+        picture = cls.pictures.get(name)
+        wanted = (name, cls.hidden, picture["drawn"] if picture else False)
+        if wanted == cls._shown:
+            return
+        cls._shown = wanted
+        try:
+            if cls.hidden:
+                pg.mouse.set_visible(False)
+            elif picture is None:
+                pg.mouse.set_visible(True)
+                pg.mouse.set_cursor(cls.BUILT_IN[name])
+            elif picture["drawn"]:
+                pg.mouse.set_visible(False)       # Cursor.draw() draws the picture
+            else:
+                pg.mouse.set_cursor(pg.cursors.Cursor(picture["hotspot"], picture["image"]))
+                pg.mouse.set_visible(True)
+        except (pg.error, AttributeError):
+            if picture is not None and not picture["drawn"]:
+                # This computer can't use pictures as pointers: draw it ourselves
+                _warn_once("This computer can't use a picture as the mouse pointer, so "
+                           "Cursor will draw it instead (call Cursor.draw(screen) last).")
+                picture["drawn"] = True
+                cls._shown = None
+                cls._show(name)
+            else:
+                _warn_once("This computer can't change the mouse pointer "
+                           "(built-in pointers won't show).")
 
 
 # ================================
@@ -9961,6 +10258,7 @@ class Scenes:
 
     transition: None, "fade", "slide_left", "slide_right", "slide_up", "slide_down"
     Timers made with after() inside a scene stop when you leave it.
+    Cursor.set() and Cursor.attach() made inside a scene are undone when you leave it.
     """
 
     def __init__(self):
@@ -9986,6 +10284,7 @@ class Scenes:
         if self.current is not None:
             self.current.stop()
             cancel_all_timers(scene=self.current_name)
+            Cursor._scene_ended(self.current_name)
         self.current_name = name
         self.current = self.scenes[name]
         _timer_scene[0] = name
@@ -10344,8 +10643,9 @@ class HeartsBar(Widget):
                  heart_color=None, heart_colour=None, empty_color=None,
                  empty_colour=None, border_color=None, border_colour=None,
                  border_width=None, flash_when_hurt=False, center=False,
-                 visible=True, style=None):
+                 visible=True, style=None, cursor=None):
         super().__init__(x, y, center=center, visible=visible, style=style)
+        self.cursor = cursor
         self.health = health
         self.hearts = hearts
         self.maximum = maximum
@@ -10468,6 +10768,7 @@ class HeartsBar(Widget):
     def draw(self, screen, offset=(0, 0)):
         if not self.visible:
             return
+        self._drawn(screen, offset)
         self._refresh()
         # Blink: hidden for 100 ms, shown for 100 ms, while flashing
         if self._flash_time and (self._flash_time // 100) % 2 == 1:

@@ -1236,6 +1236,46 @@ def _(s):
     arrow(s, (470, 52), (536, 84))
     note(s, "click / SPACE: finish the line, then the next line", 20, 14, 16)
 
+
+# ======================================================================
+# Cursor (the mouse pointer)
+# ======================================================================
+def draw_pointer(s, name, pos, show_hotspot=False):
+    """Draw a Cursor picture at pos, as Cursor.draw() does in drawn mode."""
+    mouse_pos[0] = pos
+    g.Cursor.set(name)
+    g.Cursor.pictures[name]["drawn"] = True      # draw it, so it shows in the picture
+    g.Cursor.draw(s)
+    if show_hotspot:
+        pg.draw.circle(s, (255, 0, 255), pos, 3)
+
+
+@shot("cursor", 660, 250, bg=(30, 60, 40))
+def _(s):
+    g.Cursor.reset()
+    g.Cursor.add("aim", asset("crosshair.png"), hotspot="center", size=48)
+    g.Cursor.add("aim_red", asset("crosshair_red.png"), hotspot="center", size=48)
+    g.Cursor.add("pointing_hand", asset("hand.png"), hotspot=(11, 1), size=32)
+
+    note(s, 'Cursor.set("aim")', 20, 14, 16)
+    draw_pointer(s, "aim", (110, 120), show_hotspot=True)
+    note(s, "hotspot = the pixel that clicks", 20, 200, 15, colour=(255, 220, 0))
+    arrow(s, (110, 196), (110, 142))
+
+    note(s, 'Cursor.attach(box, "aim_red")', 235, 14, 16)
+    pg.draw.rect(s, (230, 160, 40), (300, 90, 60, 60))
+    draw_pointer(s, "aim_red", (330, 120))
+    note(s, "red while over the target", 250, 200, 15, colour=(255, 220, 0))
+
+    pg.draw.rect(s, (45, 45, 60), (480, 0, 180, 250))
+    note(s, 'cursor="hand"', 500, 14, 16)
+    mouse_pos[0] = (600, 122)
+    g.Button(500, 95, 140, 44, "Play", cursor="pointing_hand").draw(s)
+    draw_pointer(s, "pointing_hand", (600, 122))
+    note(s, "any widget", 520, 200, 15, colour=(255, 220, 0))
+    g.Cursor.reset()
+
+
 print()
 print(f"Made {len(made)} pictures in {OUT}")
 if failed:
