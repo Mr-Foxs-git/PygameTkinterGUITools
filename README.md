@@ -124,6 +124,7 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Menu bar, right-click menu, editable table, tree view, scrolling list | [`scrolled_table_menu_example.py`](examples/scrolled_table_menu_example.py) |
 | Explosions, fire, smoke, rain, snow, sparks... | [`particles_example.py`](examples/particles_example.py) |
 | Damage numbers and "+10" pop-ups that float up and fade | [`floating_text_example.py`](examples/floating_text_example.py) |
+| Enemies that keep coming, in waves; coins that keep appearing | [`spawner_example.py`](examples/spawner_example.py) |
 | Things following a leader (worms, party members, trains, trails) | [`chain_example.py`](examples/chain_example.py) |
 | A complete Snake game | [`snake_example.py`](examples/snake_example.py) |
 | Animate a character from a sprite sheet (walk, run, jump back to idle, footstep sounds) | [`animator_example.py`](examples/animator_example.py) |
@@ -224,6 +225,7 @@ and move, hide and update with it.
 | `Menu` | Menu bars, sub-menus and right-click menus, with working shortcuts |
 | `ParticleEmitter`, `Particles` | Particle effects, with ready-made presets |
 | `FloatingText` | Damage numbers and "+10" pop-ups - a text particle that `Particles` looks after |
+| `Spawner`, `Waves` | Make enemies, coins... every few seconds at chosen places, with a limit on how many are alive; run them in waves |
 | `Chain` | Things that follow a leader - snakes, worms, followers, trains, trails |
 | `draw_text()` | Quickly draw text on the screen |
 
@@ -625,6 +627,36 @@ No list to keep and nothing to delete: it floats up (`speed` pixels per second),
 fades out in the second half of its `duration` (ms) and `Particles` removes it.
 Options: `color`, `font_name`, `font_size`, `outline_color` (`None` = no outline).
 
+### Spawner and Waves (enemies every few seconds, wave 1, wave 2...)
+You write a function that makes **one** object. The Spawner decides when and
+where to call it, and an object stops counting as alive when you `kill()` it.
+```python
+def make_slime(x, y):                       # your function: ONE slime at x, y
+    slime = SpriteObject(x, y, animator=slime_walk())
+    slime.brain = Chaser(slime, player, speed=90)
+    slime.health = Health(20, on_death=slime.kill)
+    return slime
+
+slimes = Spawner(make_slime, points=[(20, 60), (760, 60)], every=1500,
+                 max_alive=6, avoid=player, min_distance=150)
+slimes.update(tick)                         # in update(tick)
+for slime in slimes:                        # every slime still alive
+    slime.brain.update(tick)
+slimes.draw(screen, camera)                 # in draw_game() (or give it world=)
+
+waves = Waves(slimes, [3, 5, {"count": 8, "every": 500, "make": make_boss}],
+              break_ms=3000, on_all_done=you_win)
+waves.update(tick)                          # instead of slimes.update(tick)
+wave_label.config(text=waves.text())        # "Wave 2 of 3 - 4 left" / "Wave 3 in 2"
+```
+`points` can be one `(x, y)`, a list of them, a `pg.Rect` (a random spot inside),
+`level.spawn_points`, `level.objects_of_type("spawner")` or a sprite (it can move).
+`every=(800, 2000)` = a random time each go. Also `total=`, `first_after=`,
+`pick="in_turn"`, `spawn_now()`, `stop()` / `start()`, `clear()`, `done_spawning`,
+`cleared` and `config(every=...)` to speed up as the game goes on.
+Waves: `wave`, `state`, `left()`, `break_left()`, `skip_break()`, `restart()`,
+`loop=True` (endless). F1 shows the spawn places.
+
 ### Chain (snakes, followers, trains...)
 ```python
 worm = Chain(head, count=12, spacing=14, size=20, shrink=True)
@@ -913,6 +945,7 @@ often trip students up. Everything here is deliberate.
 | Turning a picture | no sprites in tkinter; pygame's `rotate()` turns anticlockwise, the picture grows and drifts away from its spot | `sprite.angle` is a compass direction (0 up, 90 right, clockwise), `point_at()` does the maths, the picture stays centred and the hitbox doesn't change | angles match a compass and the screen; collisions stay steady |
 | Moving less than a pixel | pygame rects only hold whole numbers, so `rect.x += 0.4` does nothing | `SpriteObject(..., smooth_move=True)` keeps the fractions | slow speeds and `speed * tick / 1000` work |
 | Which sprite is in front | (pygame) a `Group` draws in the order things were added | `World(..., y_sort=True)` draws whatever is lower on the screen in front, mixed with "midground" map layers | walk behind trees and signs with no extra code |
+| Repeating something (spawning enemies) | a function that re-schedules itself with `root.after()` - easy to start twice, forget to re-schedule, or leave running after the level ends | `Spawner(make, every=1500, max_alive=6)` and `Waves(spawner, [3, 5, 8])`, run by `update(tick)` | less code, an alive limit and waves built in, and it stops when you stop updating it |
 | Going back to idle after an attack | (pygame) check every frame whether the animation has ended | `play_once("attack", then="idle")`, `on_finish=`, `animator.busy` | less code in `update()` |
 
 **Things tkinter has that this library doesn't (yet):** multi-line text
@@ -1018,6 +1051,10 @@ Everything here is **added** - code written for v1.0 still works the same.
   `tiled_example.py` now moves the player with `TopDownBody(..., hitbox=10)`
   (F1 shows the feet and the walls); `topdown_ai_example.py` gives the player a
   feet hitbox and uses `World(..., y_sort=True)`.
+- New `Spawner` (makes objects every few seconds at points, a Rect or Tiled
+  objects, with `max_alive`, `total`, `avoid=` and `world=`) and `Waves` (runs a
+  Spawner in waves with breaks). New example `spawner_example.py`, new test
+  `test_spawner.py`. `after_repeat()` is unchanged, so the old way still works.
 
 ## Example art
 

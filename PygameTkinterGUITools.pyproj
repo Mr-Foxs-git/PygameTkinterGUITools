@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>f455a13a-f7b3-42d7-99ec-a801e987b2df</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>examples\topdown_ai_example.py</StartupFile>
+    <StartupFile>examples\spawner_example.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -61,6 +61,8 @@
     <Compile Include="examples\particles_example.py" />
     <Compile Include="examples\floating_text_example.py" />
     <Compile Include="tests\test_floating_text.py" />
+    <Compile Include="examples\spawner_example.py" />
+    <Compile Include="tests\test_spawner.py" />
     <Compile Include="examples\chain_example.py" />
     <Compile Include="examples\snake_example.py" />
     <Compile Include="tests\test_scroll_table_menu_particles_chain.py" />

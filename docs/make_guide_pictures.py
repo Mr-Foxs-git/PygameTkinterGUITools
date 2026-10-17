@@ -1167,6 +1167,52 @@ def _(s):
          colour=(200, 200, 200))
 
 
+# ======================================================================
+# Spawner and Waves
+# ======================================================================
+@shot("spawner", 640, 480)
+def _(s):
+    random.seed(7)
+    pg.draw.rect(s, (40, 70, 50), (0, 0, 640, 384))
+    arena = pg.Rect(70, 70, 500, 270)
+    pg.draw.rect(s, (60, 95, 70), arena)
+    player = g.SpriteObject(300, 190, image=sheet_frame(0, 0, scale=1))
+
+    def make_slime(x, y):
+        animator = g.Animator(asset("slime_sheet.png"), from_sheet=True,
+                              tile_width=32, tile_height=32, rows=1, cols=2)
+        slime = g.SpriteObject(x, y, animator=animator)
+        slime.brain = g.Chaser(slime, player, speed=70, detect_range=2000)
+        return slime
+
+    def make_coin(x, y):
+        spin = g.Animator(asset("coin_sheet.png"), from_sheet=True, tile_width=16,
+                          tile_height=16, rows=1, cols=4, scale=2)
+        return g.SpriteObject(x, y, animator=spin)
+
+    corners = [(20, 20), (588, 20), (20, 348), (588, 348)]
+    slimes = g.Spawner(make_slime, points=corners, every=700, max_alive=6)
+    waves = g.Waves(slimes, [6, 8], break_ms=0)
+    coins = g.Spawner(make_coin, points=arena, every=400, max_alive=3,
+                      avoid=player, min_distance=90)
+    for _ in range(200):                  # let the game run for a moment
+        waves.update(16)
+        coins.update(16)
+        for slime in slimes:
+            slime.brain.update(16)
+    g.Debug.on = True                     # F1: show the spawn places
+    coins.draw(s)
+    slimes.draw(s)
+    player.draw(s)
+    g.Debug.on = False
+    g.Label(320, 18, waves.text(), font_size=28, center=True).draw(s)
+    note(s, "yellow + = spawn points (the 4 corners)", 20, 398, 16, colour=(255, 220, 0))
+    note(s, "yellow box = coin area (a Rect)", 20, 424, 16, colour=(255, 220, 0))
+    note(s, "red ring = min_distance: no coins next to the player", 20, 450, 16,
+         colour=(255, 120, 120))
+    note(s, "F1 (Debug) shows all of this", 400, 398, 16)
+
+
 print()
 print(f"Made {len(made)} pictures in {OUT}")
 if failed:

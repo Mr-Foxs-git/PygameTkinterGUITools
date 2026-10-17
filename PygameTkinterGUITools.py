@@ -22,6 +22,7 @@ save_data, load_data, HighScores, Debug.
 Layout (like tkinter): widget.grid() / pack() / place(), Root.
 Combat: Health, HeartsBar, Projectile, ProjectileGroup, Shooter, flash, blink,
 knockback, camera.shake.
+Spawning: Spawner (enemies / coins every few seconds), Waves.
 More widgets: ScrolledFrame, Table (with tree view and editing), Menu.
 Effects: ParticleEmitter, Particles (ready-made effects). Chain (snakes, followers).
 Sound: init_audio, Audio, SoundEffect, Music.
@@ -10724,6 +10725,537 @@ class FloatingText:
             x, y = camera.apply_pos((x, y))
         self.image.set_alpha(alpha)
         screen.blit(self.image, self.image.get_rect(center=(int(x), int(y))))
+
+
+# ================================
+# Spawner and Waves (enemies every few seconds, wave 1, wave 2...)
+# ================================
+
+def _warn_once(message):
+    """Print a warning, but only the first time (so it doesn't fill the screen)."""
+    if message not in Layout._printed:
+        Layout._printed.add(message)
+        print("Warning:", message)
+
+
+class Spawner:
+    """
+    Makes new objects (enemies, coins, asteroids...) every few seconds,
+    at the places you choose, with a limit on how many are alive at once.
+
+    YOU write the function that makes ONE object. The Spawner decides
+    when and where to call it:
+
+        def make_slime(x, y):
+            slime = SpriteObject(x, y, 28, 28, image="slime.png")
+            slime.brain = Chaser(slime, player, speed=90)
+            return slime
+
+        spawner = Spawner(make_slime, points=[(40, 40), (760, 40)],
+                          every=1500, max_alive=6)
+
+        spawner.update(tick)              # in update(tick)
+        for slime in spawner:             # every object that is still alive
+            slime.brain.update(tick)
+        spawner.draw(screen, camera)      # in draw_game() (camera is optional)
+
+    An object stops counting as "alive" when you call its kill() (for
+    example Health(20, on_death=slime.kill), or when a coin is picked up).
+    You never have to remove things from a list yourself.
+
+    Parameters:
+        make         - your function make(x, y) that returns ONE new object
+                       (anything with a .rect, usually a SpriteObject).
+                       Return None to skip this spawn.
+        points       - where things appear. Any of:
+                         (x, y)                      one place
+                         [(x, y), (x, y), ...]       several places
+                         pg.Rect(...)                a random spot inside it
+                         level.spawn_points          from a TiledMap
+                         level.objects_of_type("spawner")   Tiled rectangles
+                         a sprite                    its middle (it can move!)
+                       None = the middle of the screen.
+        every        - ms between spawns, or (shortest, longest) for a
+                       random time each go, e.g. every=(800, 2000)
+        max_alive    - never more than this many alive at once (None = no limit)
+        total        - stop after making this many (None = keep going)
+        first_after  - ms before the first one (None = the same as every,
+                       0 = one straight away)
+        pick         - "random" place each time, or "in_turn" (go round them)
+        avoid        - a sprite or rect (usually the player) to keep away from
+        min_distance - places closer than this to avoid are not used, so
+                       nothing pops up right on top of the player
+        world        - a World: new objects are added to it too, so
+                       world.update() / world.draw() look after them
+        start        - False = wait until spawner.start()
+
+    Timing uses update(tick), so when you stop calling update (paused
+    game, another Scene) the Spawner stops too. Nothing to cancel.
+    With Debug on (F1), draw() also shows the spawn places.
+    """
+
+    _options = ("make", "points", "every", "max_alive", "total", "first_after",
+                "pick", "avoid", "min_distance", "world")
+
+    def __init__(self, make, points=None, every=1000, max_alive=None, total=None,
+                 first_after=None, pick="random", avoid=None, min_distance=0,
+                 world=None, start=True):
+        self.make = make
+        self.points = points
+        self.every = every
+        self.max_alive = max_alive
+        self.total = total
+        self.first_after = first_after
+        self.pick = pick
+        self.avoid = avoid
+        self.min_distance = min_distance
+        self.world = world
+        self.sprites = pg.sprite.Group()   # the alive objects that are sprites
+        self._others = []                  # alive objects that are not sprites
+        self.spawned = 0                   # how many it has made so far
+        self.running = start
+        self._turn = 0                     # next place for pick="in_turn"
+        self._wait = self._first_wait()    # ms until the next spawn
+        self._check_every()
+
+    # ---- settings ----
+    def config(self, **options):
+        """Change settings while the game runs, e.g. spawner.config(every=500)."""
+        for name, value in options.items():
+            if name not in self._options:
+                raise ValueError(f"Spawner has no option '{name}'. "
+                                 f"Options: {', '.join(self._options)}")
+            setattr(self, name, value)
+        self._check_every()
+
+    configure = config
+
+    def cget(self, name):
+        """Read a setting, e.g. spawner.cget("every")."""
+        if name not in self._options:
+            raise ValueError(f"Spawner has no option '{name}'")
+        return getattr(self, name)
+
+    def _check_every(self):
+        times = self.every if isinstance(self.every, (tuple, list)) else [self.every]
+        if min(times) <= 0:
+            _warn_once(f"Spawner every={self.every} - it needs a time in ms "
+                       f"above 0, e.g. every=1000. Using 1000.")
+
+    def _next_wait(self):
+        """How long until the next spawn (picks a random time for every=(a, b))."""
+        import random
+        every = self.every
+        if isinstance(every, (tuple, list)):
+            every = random.randint(int(every[0]), int(every[1]))
+        return every if every > 0 else 1000
+
+    def _first_wait(self):
+        return self._next_wait() if self.first_after is None else self.first_after
+
+    # ---- what is alive ----
+    def alive(self):
+        """A list of every object it made that is still alive."""
+        return list(self.sprites) + list(self._others)
+
+    def __iter__(self):
+        # A copy, so you can kill() things while looping over the spawner
+        return iter(self.alive())
+
+    def __len__(self):
+        return len(self.sprites) + len(self._others)
+
+    def remove(self, thing):
+        """Stop counting something as alive (for objects that aren't sprites)."""
+        if isinstance(thing, pg.sprite.Sprite):
+            thing.kill()
+        elif thing in self._others:
+            self._others.remove(thing)
+
+    def clear(self):
+        """Remove everything it made (kill() every sprite)."""
+        for thing in self.alive():
+            self.remove(thing)
+
+    @property
+    def done_spawning(self):
+        """True when it has made `total` objects."""
+        return self.total is not None and self.spawned >= self.total
+
+    @property
+    def cleared(self):
+        """True when it has made `total` objects AND none are left alive."""
+        return self.done_spawning and len(self) == 0
+
+    def time_left(self):
+        """ms until the next spawn."""
+        return max(0, self._wait)
+
+    # ---- start / stop ----
+    def start(self):
+        self.running = True
+
+    def stop(self):
+        """Stop spawning (the objects already made stay)."""
+        self.running = False
+
+    def reset(self):
+        """Start counting again from 0 spawned (alive objects stay)."""
+        self.spawned = 0
+        self._turn = 0
+        self._wait = self._first_wait()
+
+    # ---- places ----
+    def _places(self):
+        """
+        Turn `points` into a list of places. Each place is an (x, y)
+        point or a pg.Rect area. Worked out every time, so a sprite used
+        as a spawn point can move.
+        """
+        points = self.points
+        if points is None:
+            screen = pg.display.get_surface()
+            w, h = screen.get_size() if screen else (0, 0)
+            return [(w // 2, h // 2)]
+        if isinstance(points, dict):                  # map.spawn_points
+            points = list(points.values())
+        elif self._is_point(points) or isinstance(points, pg.Rect) or hasattr(points, "rect"):
+            points = [points]                         # just one place
+        places = []
+        for item in points:
+            if self._is_point(item):
+                places.append((item[0], item[1]))
+            elif isinstance(item, pg.Rect):
+                places.append(item)
+            elif isinstance(item, dict) and "rect" in item:   # a Tiled object
+                rect = pg.Rect(item["rect"])
+                places.append(rect if rect.width and rect.height else rect.topleft)
+            elif hasattr(item, "rect"):                # a sprite: its middle
+                places.append(item.rect.center)
+        if not places:
+            _warn_once("Spawner has no spawn places - check points=")
+        return places
+
+    @staticmethod
+    def _is_point(item):
+        return (isinstance(item, (tuple, list)) and len(item) == 2
+                and all(isinstance(n, (int, float)) for n in item))
+
+    def _too_close(self, x, y):
+        """True if (x, y) is closer to `avoid` than min_distance."""
+        if self.avoid is None or not self.min_distance:
+            return False
+        rect = getattr(self.avoid, "rect", self.avoid)
+        cx, cy = pg.Rect(rect).center
+        return (x - cx) ** 2 + (y - cy) ** 2 < self.min_distance ** 2
+
+    def _spot_in(self, place):
+        """
+        An (x, y) to spawn at for one place, or None if it is too close
+        to `avoid`. Areas try a few random spots.
+        """
+        import random
+        if not isinstance(place, pg.Rect):
+            return None if self._too_close(*place) else place
+        for _ in range(10):
+            x = random.randint(place.left, max(place.left, place.right - 1))
+            y = random.randint(place.top, max(place.top, place.bottom - 1))
+            if not self._too_close(x, y):
+                return (x, y)
+        return None
+
+    def _choose(self):
+        """Pick a place and a spot in it: returns (place, (x, y)) or None."""
+        import random
+        places = self._places()
+        if not places:
+            return None
+        if self.pick == "in_turn":
+            order = [(self._turn + i) % len(places) for i in range(len(places))]
+        else:
+            order = list(range(len(places)))
+            random.shuffle(order)
+        for index in order:
+            spot = self._spot_in(places[index])
+            if spot is not None:
+                self._turn = index + 1
+                return places[index], spot
+        return None              # every place is too close to `avoid`
+
+    # ---- spawning ----
+    def _room(self):
+        """True if another one is allowed right now."""
+        if self.done_spawning:
+            return False
+        return self.max_alive is None or len(self) < self.max_alive
+
+    def spawn_now(self):
+        """
+        Make one straight away (still keeps to max_alive, total and avoid).
+        Returns the new object, or None if it couldn't.
+        """
+        result, thing = self._spawn()
+        return thing
+
+    def _spawn(self):
+        """
+        Try to make one. Returns (result, thing) where result is
+        "made", "full" (max_alive / total reached), "blocked" (every place
+        is too close to `avoid`) or "skipped" (your make() returned None).
+        """
+        if not self._room():
+            return "full", None
+        choice = self._choose()
+        if choice is None:
+            return "blocked", None
+        place, (x, y) = choice
+        thing = self.make(x, y)
+        if thing is None:
+            return "skipped", None
+        rect = getattr(thing, "rect", None)
+        if rect is None:
+            _warn_once("Spawner: make() must return something with a .rect "
+                       "(e.g. a SpriteObject)")
+        elif isinstance(place, pg.Rect):
+            rect.clamp_ip(place)           # keep it inside the area
+        if isinstance(thing, pg.sprite.Sprite):
+            self.sprites.add(thing)
+            if self.world is not None:
+                self.world.add_sprite(thing)
+        else:
+            self._others.append(thing)
+        self.spawned += 1
+        return "made", thing
+
+    def update(self, tick):
+        """Count down and spawn when it is time. Call once per frame."""
+        if not self.running or self.done_spawning:
+            return
+        self._wait -= tick
+        if self._wait > 0:
+            return
+        result, thing = self._spawn()
+        if result in ("full", "blocked"):
+            # Full: spawn as soon as one dies.
+            # Blocked (too close to the player): try again next frame.
+            self._wait = 0
+        else:
+            self._wait = max(0, self._wait + self._next_wait())
+
+    # ---- drawing ----
+    def draw(self, screen, camera=None):
+        """
+        Draw everything it made (not needed if you gave it world=, because
+        the World draws them). With Debug on (F1) also show the spawn places.
+        """
+        if self.world is None:
+            for thing in self.alive():
+                if not getattr(thing, "visible", True):
+                    continue
+                if camera is not None:
+                    thing.draw(screen, camera)
+                else:
+                    thing.draw(screen)
+        if Debug.on:
+            self.draw_debug(screen, camera)
+
+    def draw_debug(self, screen, camera=None):
+        """Yellow = a spawn place, grey = too close to `avoid` right now."""
+        to_screen = (lambda p: camera.apply_pos(p)) if camera else (lambda p: p)
+        places = self._places()
+        for place in places:
+            if isinstance(place, pg.Rect):
+                blocked = self._too_close(*place.center)
+                colour = (120, 120, 120) if blocked else (255, 220, 0)
+                x, y = to_screen(place.topleft)
+                pg.draw.rect(screen, colour, (x, y, place.width, place.height), 1)
+            else:
+                colour = (120, 120, 120) if self._too_close(*place) else (255, 220, 0)
+                x, y = to_screen(place)
+                pg.draw.circle(screen, colour, (int(x), int(y)), 8, 2)
+                pg.draw.line(screen, colour, (x - 12, y), (x + 12, y))
+                pg.draw.line(screen, colour, (x, y - 12), (x, y + 12))
+        if self.avoid is not None and self.min_distance:
+            rect = pg.Rect(getattr(self.avoid, "rect", self.avoid))
+            pg.draw.circle(screen, (255, 80, 80), to_screen(rect.center),
+                           int(self.min_distance), 1)
+        if places:
+            first = places[0].topleft if isinstance(places[0], pg.Rect) else places[0]
+            x, y = to_screen(first)
+            limit = "" if self.max_alive is None else f"/{self.max_alive}"
+            draw_text(screen, f"next {self.time_left() / 1000:.1f}s  alive {len(self)}{limit}",
+                      x + 14, y + 10, fg=(255, 255, 0), font_size=18)
+
+
+class Waves:
+    """
+    Runs a Spawner in waves: wave 1, a short break, wave 2...
+    A wave ends when all of it has been spawned AND killed.
+
+        spawner = Spawner(make_slime, points=corners, every=1000)
+        waves = Waves(spawner, [5, 8, 12], break_ms=3000, on_all_done=you_win)
+
+        waves.update(tick)                    # instead of spawner.update(tick)
+        wave_label.config(text=waves.text())  # "Wave 2 of 3 - 4 left"
+
+    Each wave can be a number (how many) or a dict of Spawner settings
+    for just that wave. Settings you leave out use the Spawner's own:
+
+        Waves(spawner, [
+            {"count": 5, "every": 1200},
+            {"count": 10, "every": 600, "make": make_bat},
+            {"count": 1, "make": make_boss},
+        ])
+
+    Parameters:
+        spawner        - the Spawner to use
+        waves          - the list of waves (see above)
+        break_ms       - rest between waves, in ms
+        first_break_ms - rest before wave 1 (None = the same as break_ms)
+        on_wave_start, on_wave_end, on_all_done - functions to run (no
+                         arguments; read waves.wave inside them)
+        loop           - True = after the last wave start again (endless mode,
+                         the wave number keeps going up)
+        start          - False = wait until waves.start()
+
+    waves.state is "waiting" (before start), "break", "spawning",
+    "clearing" (all spawned, some still alive) or "done".
+    """
+
+    _wave_settings = ("make", "points", "every", "max_alive", "first_after", "pick",
+                      "avoid", "min_distance")
+
+    def __init__(self, spawner, waves, break_ms=3000, first_break_ms=None,
+                 on_wave_start=None, on_wave_end=None, on_all_done=None,
+                 loop=False, start=True):
+        self.spawner = spawner
+        self.waves = list(waves)
+        self.break_ms = break_ms
+        self.first_break_ms = break_ms if first_break_ms is None else first_break_ms
+        self.on_wave_start = on_wave_start
+        self.on_wave_end = on_wave_end
+        self.on_all_done = on_all_done
+        self.loop = loop
+        self.wave = 0                    # the wave number (0 = not started yet)
+        self.state = "waiting"
+        self._break_left = 0
+        # Remember the Spawner's own settings, to go back to between waves
+        self._base = {name: spawner.cget(name) for name in self._wave_settings}
+        spawner.stop()                   # Waves decides when it spawns
+        if not self.waves:
+            _warn_once("Waves was given an empty list of waves")
+        if start:
+            self.start()
+
+    @property
+    def wave_count(self):
+        """How many waves are in the list."""
+        return len(self.waves)
+
+    def start(self):
+        """Start the first break (or carry on after stop())."""
+        if self.state == "waiting":
+            self.state = "break"
+            self._break_left = self.first_break_ms
+        elif self.state == "stopped":
+            self.state = self._was
+            if self.state == "spawning":
+                self.spawner.start()
+
+    def stop(self):
+        """Pause the waves (alive objects stay)."""
+        if self.state in ("break", "spawning", "clearing"):
+            self._was = self.state
+            self.state = "stopped"
+            self.spawner.stop()
+
+    def restart(self):
+        """Back to before wave 1 (kills everything the spawner made)."""
+        self.spawner.clear()
+        self.spawner.stop()
+        self.wave = 0
+        self.state = "waiting"
+        self.start()
+
+    def skip_break(self):
+        """Start the next wave now."""
+        if self.state == "break":
+            self._break_left = 0
+
+    def break_left(self):
+        """ms until the next wave starts (0 if not in a break)."""
+        return max(0, self._break_left) if self.state == "break" else 0
+
+    def _settings(self, number):
+        """The settings for wave `number` (1, 2, 3...)."""
+        item = self.waves[(number - 1) % len(self.waves)]
+        if isinstance(item, dict):
+            return dict(item)
+        return {"count": item}
+
+    def _start_wave(self):
+        self.wave += 1
+        settings = self._settings(self.wave)
+        count = settings.pop("count", 1)
+        self.spawner.config(**self._base)      # back to the Spawner's own settings
+        self.spawner.config(**settings)        # then this wave's changes
+        self.spawner.total = count
+        self.spawner.reset()
+        if self.spawner.first_after is None:
+            self.spawner._wait = 0             # the break was the wait: start now
+        self.spawner.start()
+        self.state = "spawning"
+        if self.on_wave_start:
+            self.on_wave_start()
+
+    def _end_wave(self):
+        self.spawner.stop()
+        if self.on_wave_end:
+            self.on_wave_end()
+        if self.wave >= len(self.waves) and not self.loop:
+            self.state = "done"
+            if self.on_all_done:
+                self.on_all_done()
+        else:
+            self.state = "break"
+            self._break_left = self.break_ms
+
+    def left(self):
+        """How many in this wave are still to come or still alive."""
+        if self.state not in ("spawning", "clearing", "stopped"):
+            return 0
+        to_come = max(0, (self.spawner.total or 0) - self.spawner.spawned)
+        return to_come + len(self.spawner)
+
+    @property
+    def finished(self):
+        return self.state == "done"
+
+    def update(self, tick):
+        """Runs the breaks and the waves (and updates the Spawner). Once per frame."""
+        if not self.waves:
+            return
+        if self.state == "break":
+            self._break_left -= tick
+            if self._break_left <= 0:
+                self._start_wave()
+        self.spawner.update(tick)
+        if self.state == "spawning" and self.spawner.done_spawning:
+            self.state = "clearing"
+        if self.state == "clearing" and len(self.spawner) == 0:
+            self._end_wave()
+
+    def text(self):
+        """Words for a Label, e.g. "Wave 2 of 3 - 4 left" or "Wave 3 in 2"."""
+        if self.state == "waiting":
+            return "Get ready"
+        if self.state == "done":
+            return "All waves done!"
+        if self.state == "break" or (self.state == "stopped" and self._was == "break"):
+            seconds = int(-(-self._break_left // 1000))      # round up
+            return f"Wave {self.wave + 1} in {max(0, seconds)}"
+        of = "" if self.loop else f" of {len(self.waves)}"
+        return f"Wave {self.wave}{of} - {self.left()} left"
 
 
 # ================================
