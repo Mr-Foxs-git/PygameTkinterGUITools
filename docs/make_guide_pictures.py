@@ -994,6 +994,179 @@ def _(s):
     text(s, "slime.direction_to(player) = blue arrow", 370, 235, 18,
          colour=(120, 220, 255))
 
+# ======================================================================
+# Camera, Tiled and World extras (v1.1)
+# ======================================================================
+def player_frame():
+    return g.SpriteObject(0, 0, image=sheet_frame(0, 0, scale=1))
+
+
+def note(s, words, x, y, size=18, colour=(255, 255, 255), back=(20, 20, 30)):
+    """Text on a dark (or light) box, so it can be read over a game picture."""
+    width = text(s, words, -900, -900, size, bold=True).width
+    box = pg.Rect(x - 6, y - 3, width + 12, size + 8)
+    pg.draw.rect(s, back, box, border_radius=4)
+    text(s, words, x, y, size, colour=colour, bold=True)
+
+
+@shot("camera_deadzone", 700, 400)
+def _(s):
+    level = g.TiledMap(asset("level1.tmx"))
+    camera = g.Camera(level.width, level.height, s.get_size(), smooth=1,
+                      deadzone=(200, 120), lookahead=90)
+    player = player_frame()
+    player.rect.topleft = (300, 330)
+    camera.follow(player)
+    camera.snap()
+    for _ in range(90):                     # walk right, so the camera looks ahead
+        player.rect.x += 2
+        camera.update(16)
+    world = g.World(level, camera)
+    world.add_sprite(player)
+    world.draw(s)
+    camera.draw_debug(s)                    # what F1 shows
+    box = pg.Rect(0, 0, 200, 120)
+    box.center = (350, 200)
+    note(s, "deadzone: walk freely in this box", box.x, box.y - 30, colour=(255, 140, 255))
+    here = camera.apply_pos(player.rect.center)
+    note(s, "lookahead: the camera looks", here[0] - 20, box.bottom + 12, colour=(255, 140, 255))
+    note(s, "the way you are walking", here[0] - 20, box.bottom + 40, colour=(255, 140, 255))
+
+
+def ground_strip(height):
+    sheet = pg.image.load(asset("platform_tiles.png"))
+    strip = pg.Surface((32, height))
+    strip.blit(sheet, (0, 0), (0, 0, 32, 32))
+    for y in range(32, height, 32):
+        strip.blit(sheet, (0, y), (32, 0, 32, 32))
+    return strip
+
+
+@shot("parallax", 720, 430, bg=(140, 200, 240))
+def _(s):
+    camera = g.Camera(5000, 360, s.get_size())
+    camera.offset.x = 600
+    layers = [(g.Background(asset("clouds.png"), parallax=0.1, y=10), "clouds:  parallax=0.1", 20),
+              (g.Background(asset("hills.png"), parallax=0.3, y=130), "hills:  parallax=0.3", 175),
+              (g.Background(ground_strip(60), parallax=1, y=300), "ground:  parallax=1", 304)]
+    for background, label, y in layers:
+        background.draw(s, camera)
+    pg.draw.rect(s, (255, 255, 255), (0, 360, 720, 70))
+    text(s, "When the camera moves 200 pixels, each layer moves the red arrow.", 14, 368, 18,
+         colour=(30, 30, 30), bold=True)
+    text(s, "Far away = a small number = it moves less. 0 = stuck to the screen (the sky).", 14,
+         396, 17, colour=(30, 30, 30))
+    for background, label, y in layers:
+        note(s, label, 470, y, colour=(30, 30, 30), back=(255, 255, 255))
+        length = max(200 * background.parallax, 16)
+        arrow(s, (690, y + 38), (690 - length, y + 38), colour=(210, 30, 30), width=5)
+
+
+@shot("tiled_tile_property", 900, 460)
+def _(s):
+    rects, mapr, panel = fake_tiled(s, "Tiled - properties on a tile")
+    tiles = pg.image.load(asset("tiles.png"))
+    # The map: a pond in the grass
+    for col in range(mapr.width // 32):
+        for row in range(mapr.height // 32):
+            water = 4 <= col <= 11 and 1 <= row <= 4
+            s.blit(tiles, (mapr.x + col * 32, mapr.y + row * 32), ((96 if water else 0), 0, 32, 32))
+    # The Tilesets panel along the bottom of the map
+    tileset = pg.Rect(mapr.x, mapr.bottom - 120, mapr.width, 120)
+    pg.draw.rect(s, (255, 255, 255), tileset)
+    pg.draw.rect(s, (160, 160, 170), tileset, 1)
+    text(s, "Tilesets: tiles", tileset.x + 8, tileset.y + 6, 16, (40, 40, 40), bold=True)
+    big = pg.transform.scale(tiles, (7 * 64, 64))
+    s.blit(big, (tileset.x + 10, tileset.y + 36))
+    water_tile = pg.Rect(tileset.x + 10 + 3 * 64, tileset.y + 36, 64, 64)
+    pg.draw.rect(s, (255, 200, 0), water_tile, 4)
+    step_badge(s, 1, (water_tile.right + 4, water_tile.y + 2))
+    prop_row(s, panel, 0, "ID", "3")
+    text(s, "Custom Properties  ( + button )", panel.x + 10, panel.y + 82, 15, (40, 40, 40), bold=True)
+    prop_row(s, panel, 2, "water", "true  (bool)", True)
+    prop_row(s, panel, 3, "speed", "0.5  (float)", True)
+    step_badge(s, 2, (panel.x - 18, panel.y + 112))
+    text(s, "1 Click the tile in the Tilesets panel (not on the map)   2 Add custom properties. "
+            "Every water tile gets them", 10, 428, 16, (40, 40, 40))
+
+
+@shot("depth_layers", 800, 410)
+def _(s):
+    # A Tiled Layers panel
+    panel = pg.Rect(20, 20, 340, 336)
+    pg.draw.rect(s, (235, 235, 240), panel)
+    pg.draw.rect(s, (60, 63, 70), (panel.x, panel.y, panel.width, 32))
+    text(s, "Tiled - Layers (top = in front)", panel.x + 10, panel.y + 6, 17, (255, 255, 255), bold=True)
+    rows = [("Objects", "player_spawn, walls, coins", (90, 90, 90)),
+            ("Foreground", "always in front", (40, 120, 200)),
+            ("Midground", "in front OR behind", (200, 80, 40)),
+            ("Ground details", "grass at the sign's foot: behind", (60, 140, 60)),
+            ("Ground", "always behind", (60, 140, 60))]
+    for i, (name, note, colour) in enumerate(rows):
+        r = pg.Rect(panel.x + 8, panel.y + 42 + i * 58, panel.width - 16, 52)
+        pg.draw.rect(s, (255, 255, 255), r, border_radius=4)
+        pg.draw.rect(s, colour, r, 2, border_radius=4)
+        text(s, name, r.x + 10, r.y + 6, 19, (30, 30, 30), bold=True)
+        text(s, note, r.x + 10, r.y + 28, 15, colour, bold=True)
+    text(s, 'World(level, camera, y_sort=True)', 20, 370, 19, colour=(255, 200, 0), bold=True)
+
+    # Two views of the same signpost
+    level = g.TiledMap(asset("level1.tmx"))
+    for i, (top, caption) in enumerate(((246, "above it: behind"), (298, "below it: in front"))):
+        view = pg.Surface((136, 136))
+        camera = g.Camera(level.width, level.height, view.get_size())
+        camera.offset.update(172, 222)
+        world = g.World(level, camera, y_sort=True)
+        player = player_frame()
+        player.rect.topleft = (226, top)
+        world.add_sprite(player)
+        world.draw(view)
+        x = 390 + i * 210
+        s.blit(pg.transform.scale(view, (204, 204)), (x, 40))
+        pg.draw.rect(s, (200, 200, 200), (x, 40, 204, 204), 1)
+        text(s, caption, x + 102, 262, 18, center=True, bold=True)
+    text(s, "lower on the screen = drawn in front", 390, 300, 18, colour=(255, 200, 0))
+    text(s, "(sorted by the bottom of each rect)", 390, 326, 16, colour=(200, 200, 200))
+
+
+@shot("feet_hitbox", 800, 330)
+def _(s):
+    level = g.TiledMap(asset("level1.tmx"))
+    walls = [o["rect"] for o in level.collision_objects]
+    sign_base = pg.Rect(236, 312, 8, 8)
+    captions = (("came from below: in front", 360, -1), ("came from above: behind", 240, 1))
+    for i, (caption, start_y, direction) in enumerate(captions):
+        player = player_frame()
+        player.rect.size = (28, 28)
+        player.rect.topleft = (226, start_y)
+        body = g.TopDownBody(player, solids=walls, speed=200, hitbox=10)
+        for _ in range(60):                 # walk into the sign until the feet stop
+            body.move(0, direction)
+            body.update(16)
+        view = pg.Surface((120, 120))
+        camera = g.Camera(level.width, level.height, view.get_size())
+        camera.offset.update(180, 236)
+        world = g.World(level, camera, y_sort=True)
+        world.add_sprite(player)
+        world.draw(view)
+        pg.draw.rect(view, (255, 60, 60), camera.apply(sign_base), 1)     # the wall
+        body.draw_debug(view, camera)                                     # the feet
+        x = 20 + i * 260
+        s.blit(pg.transform.scale(view, (240, 240)), (x, 20))
+        pg.draw.rect(s, (200, 200, 200), (x, 20, 240, 240), 1)
+        text(s, caption, x + 120, 272, 18, center=True, bold=True)
+    text(s, "TopDownBody(player,", 560, 30, 18, colour=(255, 200, 0), bold=True)
+    text(s, "    solids=walls, hitbox=10)", 560, 54, 18, colour=(255, 200, 0), bold=True)
+    text(s, "light blue = the feet hitbox", 560, 100, 18, colour=(0, 255, 255))
+    text(s, "red = the sign's collision", 560, 130, 18, colour=(255, 90, 90))
+    text(s, "box (its base only)", 560, 154, 18, colour=(255, 90, 90))
+    text(s, "The feet can't go into the base,", 560, 196, 16)
+    text(s, "so the player is always clearly", 560, 218, 16)
+    text(s, "in front of it or behind it.", 560, 240, 16)
+    text(s, "World(level, camera, y_sort=True) does the drawing order.", 20, 300, 17,
+         colour=(200, 200, 200))
+
+
 print()
 print(f"Made {len(made)} pictures in {OUT}")
 if failed:

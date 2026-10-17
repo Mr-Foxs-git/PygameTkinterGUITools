@@ -3,12 +3,27 @@ Tiled map example - a level made in Tiled.
 
 Shows: TiledMap, World, Camera + ZoomCamera, the spawn point,
 walls from collision objects, coins from custom objects, and a trigger.
-Arrow keys to move, + and - to zoom. Find the exit on the right!
+Also: camera.snap(), tile properties (water slows you down),
+World(y_sort=True) and a feet hitbox (TopDownBody(..., hitbox=10)) so you can
+walk behind and in front of the signposts and bushes.
+Arrow keys to move, + and - to zoom. F1 shows the debug view.
+Find the exit on the right!
 
 Open assets/level1.tmx in Tiled to see (and change) how it is made:
   - "Ground" layer: grass, path, walls, animated water
-  - "Foreground" layer: tree tops, drawn in front of the player
-  - "Objects" layer: player_spawn, collision boxes, coins, exit trigger
+  - "Ground details" layer: grass at the foot of each signpost. It is on
+    the ground, so it must stay UNDER the player's feet - a background layer
+  - "Midground" layer: signposts and bushes, in front of or behind the player
+    (a layer named "midground" is sorted by height with the sprites)
+  - "Foreground" layer: empty - put things here that are ALWAYS in front
+    of the player (roofs, bridges, tree canopies)
+  - "Objects" layer: player_spawn, collision boxes, coins, exit trigger.
+    The signs and bushes have small collision boxes over their BASE only
+    (sign_base, bush_base): the player's feet bump into those, while their
+    head can overlap the picture
+  - The water tile has custom properties (select it in the tileset):
+        water = true, speed = 0.5
+    The outside edge of the pond is shallow enough to wade through.
 Needs: pip install pytmx
 """
 import os
@@ -19,7 +34,8 @@ import pygame as pg
 # In your own game, just put PygameTkinterGUITools.py next to your game file.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from PygameTkinterGUITools import (TiledMap, World, Camera, ZoomCamera,
-                                   SpriteObject, Animator, Label, Button, Popup)
+                                   SpriteObject, Animator, Label, Button, Popup, Debug,
+                                   TopDownBody)
 
 # Folder with the images and maps for the examples
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -38,13 +54,14 @@ def make_coin(x, y):
 
 def restart():
     """Send the player back to the start."""
-    player.rect.topleft = level.spawn_points["player_spawn"]
+    body.set_position(*level.spawn_points["player_spawn"])
+    zoom_camera.snap()           # jump straight back to the player
     win_popup.hide()
 
 
 def init_pygame():
     """Set up pygame, the window, the clock and all game objects."""
-    global screen, clock, level, world, camera, zoom_camera, player, coins
+    global screen, clock, level, world, camera, zoom_camera, player, body, coins
     global walls, score, score_label, win_popup
     pg.init()
     screen = pg.display.set_mode((WIDTH, HEIGHT))
@@ -65,6 +82,10 @@ def init_pygame():
     # Walls come from objects with the class "collision"
     walls = [obj["rect"] for obj in level.collision_objects]
 
+    # hitbox=10: only the bottom 10 pixels (the feet) bump into walls, so the
+    # player can walk in front of a sign with their head over its picture
+    body = TopDownBody(player, solids=walls, speed=SPEED, hitbox=10)
+
     # Coins come from objects with the class "coin"
     coins = [make_coin(obj["x"], obj["y"])
              for obj in level.custom_objects if obj["type"] == "coin"]
@@ -72,32 +93,16 @@ def init_pygame():
     camera = Camera(level.width, level.height, (WIDTH, HEIGHT))
     camera.follow(player)
     zoom_camera = ZoomCamera(camera, (WIDTH, HEIGHT), zoom=1.5)   # crisp pixels
+    zoom_camera.snap()           # start on the player (no glide from the corner)
 
-    world = World(level, camera)
+    # y_sort=True: whatever is lower on the screen is drawn in front
+    world = World(level, camera, y_sort=True)
     world.add_sprite(player, *coins)
 
     score = 0
-    score_label = Label(10, 10, "Coins: 0", fg=(255, 220, 0), bg=(0, 0, 0), font_size=32)
+    score_label = Label(10, 50, "Coins: 0", fg=(255, 220, 0), bg=(0, 0, 0), font_size=32)
     win_popup = Popup(WIDTH // 2, HEIGHT // 2, 300, 180, "You found the exit!", center=True)
     win_popup.add(Button(65, 60, 150, 50, "Play again", command=restart))
-
-
-def move_player(dx, dy):
-    """Move, then push the player back out of any wall it hit."""
-    player.move(dx, 0)
-    for wall in walls:
-        if player.rect.colliderect(wall):
-            if dx > 0:
-                player.rect.right = wall.left
-            elif dx < 0:
-                player.rect.left = wall.right
-    player.move(0, dy)
-    for wall in walls:
-        if player.rect.colliderect(wall):
-            if dy > 0:
-                player.rect.bottom = wall.top
-            elif dy < 0:
-                player.rect.top = wall.bottom
 
 
 def handle_inputs():
@@ -109,6 +114,7 @@ def handle_inputs():
 
         # >>> Objects that react to events go here
         win_popup.handle_event(event)
+        Debug.handle_event(event)      # F1: depth lines under sprites and signposts
         if event.type == pg.KEYDOWN:
             if event.key in (pg.K_PLUS, pg.K_EQUALS, pg.K_KP_PLUS):
                 zoom_camera.set_zoom(zoom_camera.zoom + 0.25)
@@ -123,10 +129,14 @@ def update(tick):
         return
 
     keys = pg.key.get_pressed()
-    step = max(1, int(SPEED * tick / 1000))
-    dx = (keys[pg.K_RIGHT] - keys[pg.K_LEFT]) * step
-    dy = (keys[pg.K_DOWN] - keys[pg.K_UP]) * step
-    move_player(dx, dy)
+    # Tile properties: the water tile has speed = 0.5 in Tiled.
+    # The middle of the feet hitbox is where the player stands.
+    ground = level.tile_properties_at(body.hitbox_rect.center)
+    speed = SPEED * ground.get("speed", 1)
+    dx = keys[pg.K_RIGHT] - keys[pg.K_LEFT]
+    dy = keys[pg.K_DOWN] - keys[pg.K_UP]
+    body.move(dx, dy, speed)
+    body.update(tick)                  # moves, stopping the feet at walls
     player.animator.play("walk" if dx or dy else "idle")
 
     # >>> Objects with update(tick) go here
@@ -152,7 +162,11 @@ def draw_game():
     screen.fill((0, 0, 0))
 
     # >>> Objects with draw(screen) go here
-    zoom_camera.draw_world(world, screen)   # map, sprites, then tree tops
+    zoom_camera.draw_world(world, screen)   # ground, then signs, bushes + sprites by height
+    if Debug.on:
+        body.draw_debug(screen, zoom_camera)   # F1: the feet hitbox (and the walls)
+        for wall in walls:
+            pg.draw.rect(screen, (255, 0, 0), zoom_camera.apply(wall), 1)
     score_label.draw(screen)
     win_popup.draw(screen)
 

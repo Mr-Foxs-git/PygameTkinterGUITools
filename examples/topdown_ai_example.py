@@ -62,7 +62,9 @@ def init_pygame():
                     tile_width=32, tile_height=32, rows=3, cols=4)
     walk.add_animation("walk", [(1, 0), (1, 1), (1, 2), (1, 3)])
     player = SpriteObject(*level.spawn_points["player_spawn"], 28, 28, animator=walk)
-    player_body = TopDownBody(player, solids=walls, speed=180)
+    # hitbox=10: only the feet bump into walls, so you can walk in front of
+    # and behind the bushes and signs (with World(..., y_sort=True))
+    player_body = TopDownBody(player, solids=walls, speed=180, hitbox=10)
 
     brains = []
     for info in level.objects_of_type("enemy"):
@@ -77,7 +79,7 @@ def init_pygame():
 
     camera = Camera(level.width, level.height, (WIDTH, HEIGHT))
     camera.follow(player)
-    world = World(level, camera)
+    world = World(level, camera, y_sort=True)     # lower on the screen = in front
     world.add_sprite(player, *[enemy for enemy, brain in brains])
 
     keys = KeyboardInput()
@@ -139,6 +141,7 @@ def draw_game():
     world.draw(screen)
     if Path.show_all:
         nav.draw(screen, camera)
+        player_body.draw_debug(screen, camera)      # the feet hitbox
         for enemy, brain in brains:
             if isinstance(brain, Chaser):
                 brain.draw_debug(screen, camera)

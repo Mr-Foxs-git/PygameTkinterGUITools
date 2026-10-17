@@ -5442,12 +5442,24 @@ class Camera:
         screen_size   - (width, height) of the window
         smooth        - how quickly it catches up each frame (0.1 = smooth,
                         1.0 = instant)
+        deadzone      - (width, height) of a box in the middle of the screen.
+                        The target moves freely inside it; the camera only
+                        moves when the target pushes past its edge.
+                        0 = no box (the camera always centres the target).
+        lookahead     - pixels to look ahead in the direction the target
+                        moves. A number = sideways only (platformers),
+                        (x, y) = both ways (top-down games). 0 = off.
 
     Use camera.follow(player), call camera.update(tick) every frame, and draw
     things at camera.apply(thing.rect).
+
+        camera.snap()                 # jump to the target (start of a level)
+        camera.on_screen(enemy)       # True if it can be seen
+        camera.shake(300, 8)          # an explosion! (stops while timers are paused)
+    With Debug on (F1) the deadzone box is drawn (camera.draw_debug(screen)).
     """
 
-    def __init__(self, width, height, screen_size, smooth=0.1):
+    def __init__(self, width, height, screen_size, smooth=0.1, deadzone=0, lookahead=0):
         self.width = width
         self.height = height
         self.screen_w, self.screen_h = screen_size   # area of the world shown
@@ -5457,15 +5469,65 @@ class Camera:
         self.shake_offset = pg.Vector2(0, 0)
         self._shake_until = 0
         self._shake_strength = 0
+        # deadzone / lookahead: a number or a pair -> always kept as (x, y)
+        self.deadzone = (deadzone, deadzone) if isinstance(deadzone, (int, float)) else tuple(deadzone)
+        if isinstance(lookahead, (int, float)):
+            self.lookahead = (lookahead, 0)          # a number = sideways only
+        else:
+            self.lookahead = tuple(lookahead)
+        self._look = pg.Vector2(0, 0)        # how far ahead it looks right now
+        self._facing = pg.Vector2(0, 0)      # the way the target last moved
+        self._last_pos = None                # where the target was last frame
 
     def shake(self, ms=200, strength=6):
-        """Shake the view, e.g. for an explosion or a big hit."""
-        self._shake_until = pg.time.get_ticks() + ms
+        """
+        Shake the view, e.g. for an explosion or a big hit.
+        Uses game time: no shaking while pause_timers() is on, and the rest of
+        the shake happens after resume_timers().
+        """
+        self._shake_until = _now() + ms
         self._shake_strength = strength
 
     def follow(self, target):
         """Follow an object that has a .rect (e.g. a SpriteObject)."""
         self.target = target
+
+    def _view_centre_wanted(self, tick, use_deadzone=True):
+        """Where the middle of the view should be (before the map edges)."""
+        centre = pg.Vector2(self.target.rect.center)
+
+        # Lookahead: lean the view the way the target is moving
+        if self.lookahead != (0, 0):
+            if self._last_pos is not None:
+                moved = centre - self._last_pos
+                for axis in (0, 1):
+                    if abs(moved[axis]) > 0.5:           # standing still keeps the last way
+                        self._facing[axis] = 1 if moved[axis] > 0 else -1
+            self._last_pos = pg.Vector2(centre)     # a copy: centre changes below
+            look = pg.Vector2(self._facing.x * self.lookahead[0],
+                              self._facing.y * self.lookahead[1])
+            # Lean over gently, so turning round doesn't flick the screen
+            frames = 1 if tick is None else tick / (1000 / 60)
+            self._look += (look - self._look) * min(1, 1 - 0.95 ** frames)
+            centre += self._look
+
+        # Deadzone: only move when the target is outside the box
+        if use_deadzone and self.deadzone != (0, 0):
+            view_centre = self.offset + pg.Vector2(self.screen_w, self.screen_h) / 2
+            for axis in (0, 1):
+                half = self.deadzone[axis] / 2
+                gap = centre[axis] - view_centre[axis]
+                if abs(gap) <= half:
+                    centre[axis] = view_centre[axis]     # inside the box: stay put
+                else:
+                    centre[axis] -= half if gap > 0 else -half
+        return centre
+
+    def _clamp(self, wanted):
+        """Don't show past the edges of the map."""
+        wanted.x = max(0, min(wanted.x, self.width - self.screen_w))
+        wanted.y = max(0, min(wanted.y, self.height - self.screen_h))
+        return wanted
 
     def update(self, tick=None):
         """
@@ -5473,7 +5535,8 @@ class Camera:
         speed at any frame rate.
         """
         import random
-        if pg.time.get_ticks() < self._shake_until:
+        timers_paused = _timer_pause["since"] is not None
+        if _now() < self._shake_until and not timers_paused:
             s = self._shake_strength
             self.shake_offset.update(random.uniform(-s, s), random.uniform(-s, s))
         else:
@@ -5482,12 +5545,8 @@ class Camera:
             return
 
         # Where the camera wants to be: target in the middle of the view
-        wanted = pg.Vector2(self.target.rect.centerx - self.screen_w / 2,
-                            self.target.rect.centery - self.screen_h / 2)
-
-        # Don't show past the edges of the map
-        wanted.x = max(0, min(wanted.x, self.width - self.screen_w))
-        wanted.y = max(0, min(wanted.y, self.height - self.screen_h))
+        centre = self._view_centre_wanted(tick)
+        wanted = self._clamp(centre - pg.Vector2(self.screen_w, self.screen_h) / 2)
 
         # Smooth follow (60 frames per second is the "normal" speed)
         amount = self.smooth
@@ -5495,14 +5554,59 @@ class Camera:
             amount = 1 - (1 - self.smooth) ** (tick / (1000 / 60))
         self.offset += (wanted - self.offset) * min(1, amount)
 
-    def apply(self, rect):
-        """Return where a world rect appears on screen."""
-        return rect.move(-self.offset.x - self.shake_offset.x, -self.offset.y - self.shake_offset.y)
+    def snap(self):
+        """
+        Jump straight to the target, with no gliding. Use it at the start of
+        a level, after a respawn or a teleport:
+            camera.follow(player)
+            camera.snap()
+        """
+        if not self.target:
+            return
+        self._last_pos = None
+        centre = self._view_centre_wanted(None, use_deadzone=False)
+        self.offset = self._clamp(centre - pg.Vector2(self.screen_w, self.screen_h) / 2)
 
-    def apply_pos(self, pos):
-        """Return where a world (x, y) appears on screen."""
-        return (pos[0] - self.offset.x - self.shake_offset.x,
-                pos[1] - self.offset.y - self.shake_offset.y)
+    def on_screen(self, thing, margin=0):
+        """
+        True if thing (a sprite, Rect or (x, y) point in the world) can be
+        seen, or is within margin pixels of the screen.
+            if camera.on_screen(enemy, margin=100):
+                enemy.update(tick)
+        """
+        view = pg.Rect(int(self.offset.x), int(self.offset.y),
+                       int(self.screen_w) + 1, int(self.screen_h) + 1).inflate(margin * 2, margin * 2)
+        if isinstance(thing, pg.Rect):
+            return view.colliderect(thing)
+        if hasattr(thing, "rect"):
+            return view.colliderect(thing.rect)
+        return view.collidepoint(thing)
+
+    def draw_debug(self, screen):
+        """Draw the deadzone box and the lookahead (World does this when F1 is on)."""
+        middle = pg.Vector2(self.screen_w, self.screen_h) / 2
+        if self.deadzone != (0, 0):
+            box = pg.Rect(0, 0, self.deadzone[0], self.deadzone[1])
+            box.center = (round(middle.x), round(middle.y))
+            pg.draw.rect(screen, (255, 0, 255), box, 1)
+        if self.lookahead != (0, 0) and self.target:
+            here = self.apply_pos(self.target.rect.center)
+            pg.draw.line(screen, (255, 0, 255), here,
+                         (here[0] + self._look.x, here[1] + self._look.y), 2)
+
+    def apply(self, rect, parallax=1.0):
+        """
+        Return where a world rect appears on screen.
+        parallax: 1 = moves with the world, 0.5 = half as fast (far away),
+        0 = stays still on the screen.
+        """
+        return rect.move(-self.offset.x * parallax - self.shake_offset.x,
+                         -self.offset.y * parallax - self.shake_offset.y)
+
+    def apply_pos(self, pos, parallax=1.0):
+        """Return where a world (x, y) appears on screen (parallax as in apply)."""
+        return (pos[0] - self.offset.x * parallax - self.shake_offset.x,
+                pos[1] - self.offset.y * parallax - self.shake_offset.y)
 
     def screen_to_world(self, pos):
         """Turn a screen position (e.g. the mouse) into a world position."""
@@ -5549,6 +5653,32 @@ class ZoomCamera:
     def update(self, tick=None):
         self.base.update(tick)
 
+    def snap(self):
+        """Jump straight to the target (see Camera.snap)."""
+        self.base.snap()
+
+    def apply(self, rect):
+        """
+        Where a world rect appears on the zoomed screen (bigger by the zoom).
+        Handy for debug boxes drawn on top: body.draw_debug(screen, zoom_camera)
+        """
+        r = self.base.apply(rect)
+        return pg.Rect(round(r.x * self.zoom), round(r.y * self.zoom),
+                       round(r.width * self.zoom), round(r.height * self.zoom))
+
+    def apply_pos(self, pos):
+        """Where a world (x, y) appears on the zoomed screen."""
+        x, y = self.base.apply_pos(pos)
+        return (x * self.zoom, y * self.zoom)
+
+    def on_screen(self, thing, margin=0):
+        """True if thing can be seen at the current zoom (see Camera.on_screen)."""
+        return self.base.on_screen(thing, margin)
+
+    def shake(self, ms=200, strength=6):
+        """Shake the view (see Camera.shake)."""
+        self.base.shake(ms, strength)
+
     def screen_to_world(self, pos):
         """Turn a screen position (e.g. the mouse) into a world position."""
         return self.base.screen_to_world((pos[0] / self.zoom, pos[1] / self.zoom))
@@ -5568,6 +5698,69 @@ class ZoomCamera:
             zoomed = pg.transform.scale(self.render, (self.screen_w, self.screen_h))
         screen.blit(zoomed, (0, 0))
 
+
+
+# ================================
+# Background Class (parallax)
+# ================================
+
+class Background:
+    """
+    A background picture that scrolls slower than the world (parallax), so
+    far-away things look far away.
+
+    Parameters:
+        image     - a filename or Surface
+        parallax  - 0 = stays still on the screen (sky), 1 = moves with the
+                    world, 0.3 = far away and slow
+        repeat_x  - True: the picture repeats left and right forever
+        repeat_y  - True: it also repeats up and down
+        x, y      - where it is drawn (the top-left of one copy)
+
+    Draw backgrounds first, furthest away first:
+        sky = Background("sky.png", parallax=0)
+        hills = Background("hills.png", parallax=0.3, y=250)
+        sky.draw(screen, camera)
+        hills.draw(screen, camera)
+        world.draw(screen)
+    With a ZoomCamera, draw backgrounds straight onto the screen before
+    zoom_camera.draw_world(...): they scroll at the zoomed speed, but the
+    picture itself is not made bigger.
+    """
+
+    def __init__(self, image, parallax=0.5, repeat_x=True, repeat_y=False, x=0, y=0):
+        if isinstance(image, str):
+            image = load_image(image)
+        self.image = image
+        self.parallax = parallax
+        self.repeat_x = repeat_x
+        self.repeat_y = repeat_y
+        self.x = x
+        self.y = y
+        self.visible = True
+
+    def update(self, tick):
+        pass        # here so it can go in a list with other objects
+
+    def draw(self, screen, camera=None):
+        """Draw it (pass the Camera or ZoomCamera so it scrolls)."""
+        if not self.visible:
+            return
+        offset, shake = pg.Vector2(0, 0), pg.Vector2(0, 0)
+        if camera is not None:
+            base = getattr(camera, "base", camera)       # a ZoomCamera has a base Camera
+            zoom = getattr(camera, "zoom", 1)
+            offset = base.offset * zoom
+            shake = base.shake_offset * zoom
+        left = self.x - offset.x * self.parallax - shake.x
+        top = self.y - offset.y * self.parallax - shake.y
+        w, h = self.image.get_size()
+        screen_w, screen_h = screen.get_size()
+        xs = range(int(left % w) - w, screen_w, w) if self.repeat_x else [int(left)]
+        ys = range(int(top % h) - h, screen_h, h) if self.repeat_y else [int(top)]
+        for x in xs:
+            for y in ys:
+                screen.blit(self.image, (x, y))
 
 
 # ================================
@@ -5911,8 +6104,15 @@ class TiledMap:
     """
     Loads a map made in Tiled (a .tmx file). Needs: pip install pytmx
 
-    Tile layers go into map.background, or map.foreground if the layer's
-    name contains "foreground" (drawn in front of sprites).
+    Tile layers are sorted into three depths by their layer name in Tiled:
+        map.background   any other name     - always behind the sprites
+        map.midground    name has "midground" (or the layer property
+                         y_sort = true)     - in front of or behind sprites,
+                                              by height, with World(y_sort=True)
+        map.foreground   name has "foreground" - always in front of sprites
+    Custom tile properties typed in Tiled (e.g. water = true):
+        level.tile_properties_at(player.rect.midbottom)   # {"water": True, ...}
+        level.tile_property_at((x, y), "speed", 1)
     Object layers are sorted into:
         map.spawn_points      {"player_spawn": (x, y)}  - name contains "spawn"
         map.collision_objects [{"rect": Rect, "properties": {...}}] - class "collision"
@@ -5943,6 +6143,7 @@ class TiledMap:
 
         # Layer groups
         self.background = pg.sprite.Group()
+        self.midground = pg.sprite.Group()
         self.foreground = pg.sprite.Group()
         self._load_tile_layers()
         self._load_object_layers()
@@ -5982,9 +6183,75 @@ class TiledMap:
         """The rectangles of every object with this Class, e.g. "platform" or "ladder"."""
         return [o["rect"] for o in self.objects_of_type(obj_type)]
 
+    # pytmx adds these to every tile's properties - students only want
+    # what they typed in Tiled
+    _PYTMX_TILE_KEYS = ("id", "width", "height", "frames", "colliders")
+
+    def tile_properties_at(self, pos_or_x, y=None):
+        """
+        The custom properties typed in Tiled for the tile at a world position,
+        as a dict. Every tile layer is checked; if two layers set the same
+        property, the top layer wins. No tile (or no properties) gives {},
+        so .get() never crashes:
+            props = level.tile_properties_at(player.rect.midbottom)
+            if props.get("water"):
+                speed = SPEED * props.get("speed", 0.5)
+        Hidden layers count too, so a hidden "logic" layer can mark areas.
+        Note: this reads the map as it was made in Tiled, not tiles your
+        game has added or moved since.
+        """
+        if y is None:
+            x, y = pos_or_x
+        else:
+            x = pos_or_x
+        column, row = int(x // self.tilewidth), int(y // self.tileheight)
+        found = {}
+        if not (0 <= column < self.tmx.width and 0 <= row < self.tmx.height):
+            return found                     # outside the map
+        for layer in self.tmx.layers:        # bottom layer first, so the top one wins
+            if not hasattr(layer, "data"):   # object / image layers have no tiles
+                continue
+            gid = layer.data[row][column]
+            if not gid:
+                continue
+            props = self.tmx.get_tile_properties_by_gid(gid) or {}
+            for name, value in props.items():
+                if name not in self._PYTMX_TILE_KEYS:
+                    found[name] = value
+        return found
+
+    def tile_property_at(self, pos, name, default=None):
+        """One tile property at a world position, or default if it isn't there."""
+        return self.tile_properties_at(pos).get(name, default)
+
+    def _group_for_layer(self, layer):
+        """Which depth group a Tiled tile layer goes into (see the class docstring)."""
+        name = layer.name.lower()
+        y_sort = getattr(layer, "properties", {}).get("y_sort")
+        if y_sort is True or str(y_sort).lower() == "true" or "midground" in name:
+            return self.midground
+        if "foreground" in name:
+            return self.foreground
+        return self.background
+
+    @staticmethod
+    def _set_stack_bottoms(tiles_by_cell, tileheight):
+        """
+        Tall things made of tiles stacked in a column (a tree top on its trunk)
+        must sort together, or the player would walk between the top and the
+        trunk. Each tile gets sort_y = the bottom of the lowest tile in its stack.
+        """
+        for (column, row), tile in tiles_by_cell.items():
+            bottom_row = row
+            while (column, bottom_row + 1) in tiles_by_cell:
+                bottom_row += 1
+            tile.sort_y = (bottom_row + 1) * tileheight
+
     def _load_tile_layers(self):
         for layer_number, layer in enumerate(self.tmx.visible_layers):
             if hasattr(layer, "tiles"):
+                group = self._group_for_layer(layer)
+                midground_cells = {}             # (column, row): tile
 
                 for x, y, surf in layer.tiles():
                     gid = layer.data[y][x]
@@ -6015,12 +6282,8 @@ class TiledMap:
                         animator = Animator(frames, from_sheet=False, frame_rate=frame_rate)
                         anim_tile = AnimatedTile(world_pos, animator)
                         anim_tile.map_layer = layer_number     # World draws layer by layer
-
-                        if "foreground" in layer.name.lower():
-                            self.foreground.add(anim_tile)
-                        else:
-                            self.background.add(anim_tile)
-
+                        group.add(anim_tile)
+                        midground_cells[(x, y)] = anim_tile
                         continue
 
                     # ----------------------------
@@ -6028,11 +6291,11 @@ class TiledMap:
                     # ----------------------------
                     tile = Tile(world_pos, surf)
                     tile.map_layer = layer_number
+                    group.add(tile)
+                    midground_cells[(x, y)] = tile
 
-                    if "foreground" in layer.name.lower():
-                        self.foreground.add(tile)
-                    else:
-                        self.background.add(tile)
+                if group is self.midground:
+                    self._set_stack_bottoms(midground_cells, self.tileheight)
 
     def _load_object_layers(self):
         """Loads all objects from Tiled object layers."""
@@ -6349,13 +6612,18 @@ def _mask_and_pos_of(thing):
 class World:
     """
     Puts a TiledMap, a Camera and your sprites together and draws them in
-    the right order: background tiles, sprites, then foreground tiles.
+    the right order: background tiles, midground tiles, sprites, then
+    foreground tiles.
 
     Parameters:
         tiled_map - a TiledMap
         camera    - a Camera (if you use a ZoomCamera, give World the base Camera)
         chunks    - True (default): big maps stay fast (see below).
                     False: check every tile every frame (the v1.0 way)
+        y_sort    - True: sprites and midground tiles are drawn lowest-last,
+                    by the bottom of their rect, so whatever is lower on the
+                    screen is in front. Walk behind a tree, then in front of it.
+                    False (default): sprites in the order they were added.
 
     Example:
         world = World(TiledMap("level1.tmx"), camera)
@@ -6376,11 +6644,12 @@ class World:
 
     CHUNK_SIZE = 256        # pixels
 
-    def __init__(self, tiled_map, camera, chunks=True):
+    def __init__(self, tiled_map, camera, chunks=True, y_sort=False):
         self.map = tiled_map
         self.camera = camera
         self.sprites = pg.sprite.Group()
         self.chunks = chunks
+        self.y_sort = y_sort
         self._caches = {}           # one per tile group (background / foreground)
         self.tiles_drawn = 0        # shown in the F1 debug view
         self._frame_times = []
@@ -6425,7 +6694,7 @@ class World:
 
     def update(self, tick):
         """Animate tiles and sprites."""
-        for tiles in (self.map.background, self.map.foreground):
+        for tiles in self._tile_groups():
             if self.chunks:
                 for tile in self._cache(tiles)["changing"]:   # still tiles are skipped
                     tile.update(tick)
@@ -6435,13 +6704,27 @@ class World:
         for sprite in self.sprites:
             sprite.update(tick)
 
+    def _tile_groups(self):
+        """The map's tile groups (older maps made in code may have no midground)."""
+        groups = [self.map.background]
+        if hasattr(self.map, "midground"):
+            groups.append(self.map.midground)
+        groups.append(self.map.foreground)
+        return groups
+
     def _draw_tiles(self, screen, tiles, view):
+        for tile in self._tiles_on_screen(tiles, view):
+            tile.draw(screen, self.camera)
+            self.tiles_drawn += 1
+
+    def _tiles_on_screen(self, tiles, view):
+        """The tiles of one group that touch the view, in drawing order."""
+        found = []
         if not self.chunks:
             for tile in tiles:
                 if tile.rect.colliderect(view):      # skip tiles off screen
-                    tile.draw(screen, self.camera)
-                    self.tiles_drawn += 1
-            return
+                    found.append(tile)
+            return found
         cache = self._cache(tiles)
         size = self.CHUNK_SIZE
         # Tiles are filed under their top-left corner, so look a little further
@@ -6457,8 +6740,8 @@ class World:
                             cache["count"] = -1
                             continue
                         if tile.rect.colliderect(view):
-                            tile.draw(screen, self.camera)
-                            self.tiles_drawn += 1
+                            found.append(tile)
+        return found
 
     def _draw_debug(self, screen):
         """F1: frame rate and tiles drawn, so lag can be seen, not guessed."""
@@ -6470,22 +6753,71 @@ class World:
         pg.draw.rect(screen, (0, 0, 0), back)
         screen.blit(surface, (8, 6))
 
+    @staticmethod
+    def _depth(thing):
+        """
+        How far down the screen a thing stands (bigger = nearer = in front).
+        Midground tiles in a stack all use the bottom of the stack (sort_y).
+        """
+        return getattr(thing, "sort_y", thing.rect.bottom)
+
+    def _draw_sprite(self, screen, sprite):
+        if hasattr(sprite, "draw"):
+            sprite.draw(screen, self.camera)
+        else:
+            screen.blit(sprite.image, self.camera.apply(sprite.rect))
+
     def draw(self, screen):
-        """Draw background tiles, then sprites, then foreground tiles."""
+        """
+        Draw background tiles, then midground tiles and sprites, then
+        foreground tiles. With y_sort=True the midground tiles and sprites
+        are mixed together, lowest on the screen drawn last (in front).
+        """
         # The part of the world that is on screen
         view = pg.Rect(int(self.camera.offset.x), int(self.camera.offset.y),
                        screen.get_width() + 1, screen.get_height() + 1)
+        midground = getattr(self.map, "midground", ())
 
         self.tiles_drawn = 0
         self._draw_tiles(screen, self.map.background, view)
-        for sprite in self.sprites:
-            if hasattr(sprite, "draw"):
-                sprite.draw(screen, self.camera)
-            else:
-                screen.blit(sprite.image, self.camera.apply(sprite.rect))
+        if self.y_sort:
+            tiles = self._tiles_on_screen(midground, view) if midground else []
+            self.tiles_drawn += len(tiles)
+            # Tiles first, so a sprite standing level with a tile is drawn in front
+            things = sorted(tiles + list(self.sprites), key=self._depth)
+            for thing in things:
+                if isinstance(thing, Tile):
+                    thing.draw(screen, self.camera)
+                else:
+                    self._draw_sprite(screen, thing)
+        else:
+            if midground:
+                self._draw_tiles(screen, midground, view)
+            for sprite in self.sprites:
+                self._draw_sprite(screen, sprite)
         self._draw_tiles(screen, self.map.foreground, view)
         if Debug.on:
+            if self.y_sort:
+                self._draw_depth_lines(screen, midground, view)
+            if hasattr(self.camera, "draw_debug"):
+                self.camera.draw_debug(screen)
             self._draw_debug(screen)
+
+    def _draw_depth_lines(self, screen, midground, view):
+        """
+        F1 with y_sort: a line under each sprite and each midground stack at
+        the height used for sorting. Whatever's line is lower is drawn in front.
+        """
+        colour = (0, 255, 255)
+        stacks = {}
+        for tile in self._tiles_on_screen(midground, view) if midground else []:
+            stacks[(tile.rect.x, self._depth(tile))] = tile.rect.width
+        for (x, bottom), width in stacks.items():
+            start = self.camera.apply_pos((x, bottom - 1))
+            pg.draw.line(screen, colour, start, (start[0] + width - 1, start[1]), 2)
+        for sprite in self.sprites:
+            left = self.camera.apply_pos((sprite.rect.left, self._depth(sprite) - 1))
+            pg.draw.line(screen, (255, 255, 0), left, (left[0] + sprite.rect.width - 1, left[1]), 2)
 
 
 # ================================
@@ -8370,6 +8702,36 @@ class Body:
         self._pos = pg.Vector2(sprite.rect.topleft)
         self.push_velocity = pg.Vector2(0, 0)    # knockback, fades away
         self.push_friction = 6                   # how quickly a push fades
+        self.hitbox = None                       # None = walls use the whole rect
+
+    @property
+    def hitbox_rect(self):
+        """
+        The part of the sprite that bumps into walls, as a Rect in the world.
+        With no hitbox it is the whole sprite rect. With a feet hitbox it is
+        a strip along the bottom of the sprite (see TopDownBody).
+        """
+        return self._collision_box().copy()
+
+    def _collision_box(self):
+        r = self.sprite.rect
+        if self.hitbox is None:
+            return r                             # the v1.0 way: the rect itself
+        if isinstance(self.hitbox, (int, float)):
+            width, height = r.width, self.hitbox
+        else:
+            width, height = self.hitbox
+        width, height = min(int(width), r.width), min(int(height), r.height)
+        box = pg.Rect(0, 0, width, height)
+        box.midbottom = r.midbottom              # the feet: centred along the bottom
+        return box
+
+    def draw_debug(self, screen, camera=None):
+        """Draw the hitbox that bumps into walls (call it when Debug.on, F1)."""
+        box = self.hitbox_rect
+        if camera is not None:
+            box = camera.apply(box)
+        pg.draw.rect(screen, (0, 255, 255), box, 1)
 
     def push(self, vx, vy=0):
         """Shove the body (knockback). It slows down by itself."""
@@ -8398,35 +8760,41 @@ class Body:
         self.touching = set()
         r = self.sprite.rect
         solids = self._solid_rects()
+        # box = the part that hits walls: the whole rect, or just the feet.
+        # off = how far the box is from the rect's top-left (it moves with it)
+        box = self._collision_box()
+        off_x, off_y = box.x - r.x, box.y - r.y
 
         self._pos.x += dx
-        before = r.copy()
-        r.x = round(self._pos.x)
-        for s in _nearby(solids, before, r):
-            if r.colliderect(s):
+        before = box.copy()
+        box.x = round(self._pos.x) + off_x
+        for s in _nearby(solids, before, box):
+            if box.colliderect(s):
                 if dx > 0:
-                    r.right = s.left
+                    box.right = s.left
                     self.touching.add("right")
                 elif dx < 0:
-                    r.left = s.right
+                    box.left = s.right
                     self.touching.add("left")
-                self._pos.x = r.x
+                self._pos.x = box.x - off_x
                 self.velocity.x = 0
 
         old_bottom = r.bottom
         self._pos.y += dy
-        before = r.copy()
-        r.y = round(self._pos.y)
-        for s in _nearby(solids, before, r):
-            if r.colliderect(s):
+        before = box.copy()
+        box.y = round(self._pos.y) + off_y
+        for s in _nearby(solids, before, box):
+            if box.colliderect(s):
                 if dy > 0:
-                    r.bottom = s.top
+                    box.bottom = s.top
                     self.touching.add("bottom")
                 elif dy < 0:
-                    r.top = s.bottom
+                    box.top = s.bottom
                     self.touching.add("top")
-                self._pos.y = r.y
+                self._pos.y = box.y - off_y
                 self.velocity.y = 0
+        if box is not r:                         # move the sprite with its feet
+            r.topleft = (box.x - off_x, box.y - off_y)
         if extra_y_check:
             extra_y_check(old_bottom, dy)
 
@@ -8440,15 +8808,35 @@ class TopDownBody(Body):
         solids  - walls: Rects or things with .rect
         speed   - pixels per second
         normalize_diagonal - True: moving diagonally isn't faster
+        hitbox  - the part of the sprite that bumps into walls:
+                  None (default) - the whole sprite rect (the v1.0 way)
+                  10             - only the FEET: a strip 10 pixels tall
+                                   along the bottom of the sprite, as wide
+                                   as the sprite
+                  (16, 8)        - a feet strip 16 wide and 8 tall, centred
+                                   along the bottom of the sprite
 
     Example:
         body = TopDownBody(player, solids=walls, speed=200)
         body.move(dx, dy)          # -1, 0 or 1 each, e.g. from KeyboardInput
         body.update(tick)
+
+    Feet hitbox (walking in front of and behind things):
+        In a top-down game the picture shows a person standing up, but only
+        their feet touch the ground. With hitbox=10 only the feet stop at
+        walls, so the head can overlap a fence, sign or tree. Give those
+        things a collision box over their BASE only (in Tiled), and use
+        World(..., y_sort=True). Coming from below, the feet stop under the
+        base, so the player is lower and drawn in front. Coming from above,
+        the feet stop above it, so the player is drawn behind.
+        sprite.rect does not change: it is still used for drawing, pickups,
+        bullets and collides_with(). body.hitbox_rect is the feet as a Rect,
+        and body.draw_debug(screen, camera) draws it (F1).
     """
 
-    def __init__(self, sprite, solids=None, speed=200, normalize_diagonal=True):
+    def __init__(self, sprite, solids=None, speed=200, normalize_diagonal=True, hitbox=None):
         super().__init__(sprite, solids, speed)
+        self.hitbox = hitbox
         self.normalize_diagonal = normalize_diagonal
         self._direction = pg.Vector2(0, 0)
         self._speed_now = speed
@@ -8459,8 +8847,9 @@ class TopDownBody(Body):
         self._speed_now = speed if speed is not None else self.speed
 
     def move_towards(self, point, speed=None):
-        """Head towards a point."""
-        d = pg.Vector2(point) - pg.Vector2(self.sprite.rect.center)
+        """Head towards a point (with a feet hitbox, the feet head there)."""
+        here = self.sprite.rect.center if self.hitbox is None else self.hitbox_rect.center
+        d = pg.Vector2(point) - pg.Vector2(here)
         if d.length() < 2:
             self.move(0, 0)
         else:

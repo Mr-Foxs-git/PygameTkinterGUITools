@@ -130,7 +130,8 @@ Every example is in [`examples/`](examples/) and uses the same game loop as
 | Turn to face the mouse, chase the player when close, exact (pixel) hits, very slow movement | [`sprite_tricks_example.py`](examples/sprite_tricks_example.py) |
 | Move a player and collect things | [`sprite_example.py`](examples/sprite_example.py) |
 | Have a world bigger than the screen | [`camera_example.py`](examples/camera_example.py) |
-| Load a level made in Tiled (with zoom) | [`tiled_example.py`](examples/tiled_example.py) |
+| Far-away backgrounds that scroll slower (parallax), a camera that looks ahead, only moving enemies near the screen | [`parallax_example.py`](examples/parallax_example.py) |
+| Load a level made in Tiled (zoom, tile properties like water, walking behind and in front of things) | [`tiled_example.py`](examples/tiled_example.py) |
 | Find my controller's button numbers | [`joystick_debug.py`](examples/joystick_debug.py) |
 | Move with a game controller | [`joystick_move.py`](examples/joystick_move.py) |
 
@@ -232,10 +233,11 @@ and move, hide and update with it.
 |---|---|
 | `SpriteObject` | A basic game object with an image or animation. It can turn (`point_at`), measure (`distance_to`, `direction_to`) and do pixel-perfect hits |
 | `Animator` | Plays animations from image files or a sprite sheet, with `then=`, `on_frame` and a speed for each animation |
-| `Camera` / `ZoomCamera` | Follows a target and scrolls (and zooms) the world. Zoom is crisp for pixel art; use `smooth=True` for smooth scaling |
-| `TiledMap` | Loads a `.tmx` map made in Tiled |
+| `Camera` / `ZoomCamera` | Follows a target and scrolls (and zooms) the world. Zoom is crisp for pixel art; use `smooth=True` for smooth scaling. Also `snap()`, `deadzone=`, `lookahead=` and `on_screen()` |
+| `Background` | A picture that scrolls slower than the world (parallax), repeated left and right |
+| `TiledMap` | Loads a `.tmx` map made in Tiled, with background / midground / foreground layers and `tile_properties_at()` |
 | `Tile` / `AnimatedTile` | Map tiles (static or animated) |
-| `World` | Puts a map, camera and sprites together |
+| `World` | Puts a map, camera and sprites together. `y_sort=True` draws whatever is lower on the screen in front |
 | `JoystickManager` | Reads any game controller (see below) |
 
 ## Quick reference
@@ -380,7 +382,31 @@ player.draw(screen, camera)     # world things are drawn through the camera
 
 zoom_camera = ZoomCamera(camera, (WIDTH, HEIGHT), zoom=2)   # smooth=True to blur
 zoom_camera.draw_world(world, screen)
+
+camera.snap()                   # jump to the player (start of a level, respawn)
+camera = Camera(world_width, world_height, (WIDTH, HEIGHT),
+                deadzone=(200, 120),   # walk freely in a box before the camera moves
+                lookahead=100)         # see further the way you walk ((x, y) for top-down)
+if camera.on_screen(enemy, margin=100):   # only update enemies near the screen
+    enemy.update(tick)
+camera.shake(300, 8)            # stops while pause_timers() is on
+camera.apply(rect, parallax=0.5)          # draw something half as far as the world moves
 ```
+With **F1** on (`Debug.handle_event(event)`), `World` draws the deadzone box
+(or call `camera.draw_debug(screen)` yourself).
+
+### Background (parallax)
+```python
+clouds = Background("clouds.png", parallax=0.1, y=30)   # far away: barely moves
+hills = Background("hills.png", parallax=0.3, y=410)    # repeat_x=True by default
+# in draw_game(), before the world, furthest away first:
+screen.fill(SKY_BLUE)
+clouds.draw(screen, camera)
+hills.draw(screen, camera)
+world.draw(screen)
+```
+`parallax=0` stays still on the screen, `1` moves with the world. Use
+`repeat_y=True` to fill the screen up and down too.
 
 ### TiledMap and World
 ```python
@@ -396,6 +422,50 @@ world.draw(screen)              # background, sprites, then foreground
 In Tiled, give objects a **Class** of `collision` or `trigger`, name spawn
 points with "spawn" in the name, and put a layer named "Foreground" in front
 of the player.
+
+#### Depth: walking behind and in front of things
+The **name** of each tile layer in Tiled decides how deep it is:
+
+| Layer name contains | Goes in | Drawn |
+|---|---|---|
+| (anything else, e.g. "Ground") | `level.background` | always behind the sprites |
+| `midground` (or the layer property `y_sort` = true) | `level.midground` | in front of or behind each sprite, by height |
+| `foreground` | `level.foreground` | always in front of the sprites |
+
+```python
+world = World(level, camera, y_sort=True)   # lower on the screen = in front
+```
+With `y_sort=True`, sprites and midground tiles are drawn in order of the
+bottom of their rect, so the player walks behind a signpost from above and in
+front of it from below. Tiles stacked in a column (a tree top on its trunk)
+count as one thing, sorted by the bottom of the lowest tile, so a tree is never
+cut in half. Without `y_sort` the midground is drawn under the sprites. Press
+**F1** to see the line each thing is sorted by.
+
+Anything flat on the ground at the foot of a midground object (grass, a
+shadow) goes on a **background** layer such as "Ground details", not in the
+midground tile. Otherwise it is drawn over the player's feet when they walk
+behind it.
+
+**Walking around things.** Give the player a feet hitbox
+(`TopDownBody(..., hitbox=10)`, see Movement building blocks) and give each
+fence, sign or tree a `collision` box over its **base** only. The feet can
+never go into the base, so a player who walks up to it from below stops
+below it and is drawn in front, and one who comes from above stops above
+it and is drawn behind - with no extra code. This is how most top-down games
+(Zelda, Pokemon, Stardew Valley) do it.
+
+#### Tile properties
+In Tiled, select a tile in the **tileset** and add a custom property (e.g.
+`water` = true, `speed` = 0.5). Then read it where the player stands:
+```python
+ground = level.tile_properties_at(player.rect.midbottom)   # {} if nothing is set
+speed = SPEED * ground.get("speed", 1)
+if level.tile_property_at(player.rect.center, "lava", False):
+    player.health.damage(1)
+```
+All tile layers are checked (the top one wins). It reads the map as it was
+made in Tiled, not tiles your game moves later.
 
 #### Making big maps run fast
 `World` only looks at the part of the map on screen and only updates
@@ -741,6 +811,23 @@ Path.show_all = False                # hide all debug paths when finished
 Things that move with a body: update the "brain" (PathFollower, Patrol, Chaser)
 first, then the body.
 
+#### Feet hitbox (top-down games)
+```python
+body = TopDownBody(player, solids=walls, speed=200, hitbox=10)
+body.hitbox_rect                     # the feet as a Rect (e.g. for tile_properties_at)
+body.draw_debug(screen, camera)      # F1: draws the feet hitbox
+```
+`hitbox` is the part of the sprite that bumps into walls:
+
+| `hitbox=` | What hits walls |
+|---|---|
+| `None` (default) | the whole sprite rect (as in v1.0) |
+| `10` | the **feet**: a strip 10 pixels tall along the bottom of the sprite, as wide as the sprite |
+| `(16, 8)` | a feet strip 16 wide and 8 tall, centred along the bottom of the sprite |
+
+`player.rect` doesn't change: drawing, pickups, bullets and `collides_with()`
+still use the whole sprite. Only walls use the hitbox.
+
 ### Drawing a path in Tiled
 1. Select your object layer (e.g. "Objects").
 2. Choose **Insert Polyline** (press **L**) for a route that goes there and
@@ -825,6 +912,7 @@ often trip students up. Everything here is deliberate.
 | Fading / sliding widgets | not possible | `show(fade_ms=300)`, `hide(fade_ms=300)`, `slide_to(x, y, ms)` | menus that animate in and out |
 | Turning a picture | no sprites in tkinter; pygame's `rotate()` turns anticlockwise, the picture grows and drifts away from its spot | `sprite.angle` is a compass direction (0 up, 90 right, clockwise), `point_at()` does the maths, the picture stays centred and the hitbox doesn't change | angles match a compass and the screen; collisions stay steady |
 | Moving less than a pixel | pygame rects only hold whole numbers, so `rect.x += 0.4` does nothing | `SpriteObject(..., smooth_move=True)` keeps the fractions | slow speeds and `speed * tick / 1000` work |
+| Which sprite is in front | (pygame) a `Group` draws in the order things were added | `World(..., y_sort=True)` draws whatever is lower on the screen in front, mixed with "midground" map layers | walk behind trees and signs with no extra code |
 | Going back to idle after an attack | (pygame) check every frame whether the animation has ended | `play_once("attack", then="idle")`, `on_finish=`, `animator.busy` | less code in `update()` |
 
 **Things tkinter has that this library doesn't (yet):** multi-line text
@@ -900,6 +988,36 @@ Everything here is **added** - code written for v1.0 still works the same.
 - `animator_example.py` now runs (Shift), jumps back to idle with `then="idle"`
   and plays footsteps with `on_frame`. New example `sprite_tricks_example.py`,
   new test `test_sprite_extras.py`.
+- `Camera`: `snap()`, `deadzone=`, `lookahead=`, `on_screen()`,
+  `apply(rect, parallax=...)`, `apply_pos(pos, parallax=...)` and
+  `draw_debug(screen)`. `ZoomCamera` has `snap()`, `on_screen()` and `shake()` too.
+  **One change you might notice:** `camera.shake()` now uses game time, so it
+  stops while `pause_timers()` is on and finishes after `resume_timers()`.
+- New `Background` for parallax backgrounds, with new pictures `hills.png` and
+  `clouds.png`, new example `parallax_example.py`.
+- `TiledMap`: `tile_properties_at()`, `tile_property_at()` and a new
+  `midground` group (layer name contains "midground", or the layer property
+  `y_sort` = true). Midground tiles have a `sort_y`.
+- `World(y_sort=True)` draws sprites and midground tiles lowest-in-front. With
+  F1 on it also shows the camera's deadzone box and the depth lines.
+- `level1.tmx`: the water tile has the properties `water` and `speed`, a new
+  "Midground" layer has three signposts (new picture `props.png`) and the
+  bushes (moved from "Foreground", so you can walk in front of them; the
+  "Foreground" layer is now empty), a new "Ground details" layer has the grass
+  at the foot of each sign, and the
+  pond's collision box is one tile smaller so its edge can be waded through
+  (enemies in `topdown_ai_example.py` can step in too). `tiled_example.py`
+  uses all of these, and `camera.snap()`. New test `test_camera_world_extras.py`.
+- `TopDownBody(..., hitbox=...)`: a feet hitbox, so only the bottom of the
+  sprite bumps into walls. New `body.hitbox_rect` and `body.draw_debug()`;
+  `move_towards()` aims the feet when a hitbox is set. The default (`None`)
+  is the whole rect, as before.
+- `ZoomCamera.apply(rect)` and `apply_pos(pos)` - where a world thing appears on
+  the zoomed screen (for debug boxes drawn on top).
+- `level1.tmx`: small `collision` boxes over the bases of the signs and bushes.
+  `tiled_example.py` now moves the player with `TopDownBody(..., hitbox=10)`
+  (F1 shows the feet and the walls); `topdown_ai_example.py` gives the player a
+  feet hitbox and uses `World(..., y_sort=True)`.
 
 ## Example art
 
